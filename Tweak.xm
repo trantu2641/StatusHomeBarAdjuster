@@ -1,15 +1,11 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
-#import <QuartzCore/QuartzCore.h>
-
-static CGFloat SHAStatusDelta = 0.0;
-static CGFloat SHAHomeDelta = 0.0;
-
-static NSMapTable *SHAOriginalTransforms;
-static NSMapTable *SHAOriginalFrames;
 
 #pragma mark - Preferences
+
+static CGFloat SHAStatusHeightDelta = 0.0;
+static CGFloat SHAHomeHeightDelta = 0.0;
 
 static void SHA_LoadPreferences(void)
 {
@@ -30,8 +26,8 @@ static void SHA_LoadPreferences(void)
             domain
         );
 
-    SHAStatusDelta = 0.0;
-    SHAHomeDelta = 0.0;
+    SHAStatusHeightDelta = 0.0;
+    SHAHomeHeightDelta = 0.0;
 
     if (statusValue &&
         CFGetTypeID(statusValue) == CFNumberGetTypeID())
@@ -44,9 +40,11 @@ static void SHA_LoadPreferences(void)
             &value
         );
 
-        value = MAX(-120.0, MIN(120.0, value));
+        value =
+            MAX(-120.0, MIN(120.0, value));
 
-        SHAStatusDelta = (CGFloat)value;
+        SHAStatusHeightDelta =
+            (CGFloat)value;
     }
 
     if (homeValue &&
@@ -60,9 +58,11 @@ static void SHA_LoadPreferences(void)
             &value
         );
 
-        value = MAX(-120.0, MIN(120.0, value));
+        value =
+            MAX(-120.0, MIN(120.0, value));
 
-        SHAHomeDelta = (CGFloat)value;
+        SHAHomeHeightDelta =
+            (CGFloat)value;
     }
 
     if (statusValue)
@@ -84,10 +84,15 @@ static BOOL SHA_IsPortrait(void)
 
     if (@available(iOS 13.0, *))
     {
-        for (UIScene *scene in application.connectedScenes)
+        for (UIScene *scene
+             in application.connectedScenes)
         {
-            if (![scene isKindOfClass:[UIWindowScene class]])
+            if (![scene
+                    isKindOfClass:
+                        [UIWindowScene class]])
+            {
                 continue;
+            }
 
             UIWindowScene *windowScene =
                 (UIWindowScene *)scene;
@@ -95,8 +100,10 @@ static BOOL SHA_IsPortrait(void)
             UIInterfaceOrientation orientation =
                 windowScene.interfaceOrientation;
 
-            if (orientation == UIInterfaceOrientationPortrait ||
-                orientation == UIInterfaceOrientationPortraitUpsideDown)
+            if (orientation ==
+                    UIInterfaceOrientationPortrait ||
+                orientation ==
+                    UIInterfaceOrientationPortraitUpsideDown)
             {
                 return YES;
             }
@@ -106,333 +113,99 @@ static BOOL SHA_IsPortrait(void)
     return NO;
 }
 
-#pragma mark - Original Transform
+#pragma mark - Status Bar Height
 
-static CGAffineTransform SHA_GetOriginalTransform(
-    UIView *view
-)
+/*
+ * Đây là phần quan trọng nhất.
+ *
+ * Không scale icon.
+ * Không đổi frame icon.
+ *
+ * Thay đổi trực tiếp chiều cao mà
+ * UIKit dùng để layout Status Bar.
+ */
+
+%hook _UIStatusBar
+
++ (double)heightForOrientation:(long long)orientation
 {
-    if (!view)
-        return CGAffineTransformIdentity;
-
-    if (!SHAOriginalTransforms)
-    {
-        SHAOriginalTransforms =
-            [NSMapTable weakToStrongObjectsMapTable];
-    }
-
-    NSValue *value =
-        [SHAOriginalTransforms objectForKey:view];
-
-    if (value)
-    {
-        return [value CGAffineTransformValue];
-    }
-
-    CGAffineTransform transform =
-        view.transform;
-
-    [SHAOriginalTransforms
-        setObject:
-            [NSValue valueWithCGAffineTransform:transform]
-        forKey:view];
-
-    return transform;
-}
-
-#pragma mark - Original Bounds
-
-static CGRect SHA_GetOriginalBounds(
-    UIView *view
-)
-{
-    if (!view)
-        return CGRectZero;
-
-    if (!SHAOriginalFrames)
-    {
-        SHAOriginalFrames =
-            [NSMapTable weakToStrongObjectsMapTable];
-    }
-
-    NSValue *value =
-        [SHAOriginalFrames objectForKey:view];
-
-    if (value)
-    {
-        return [value CGRectValue];
-    }
-
-    CGRect bounds =
-        view.bounds;
-
-    [SHAOriginalFrames
-        setObject:
-            [NSValue valueWithCGRect:bounds]
-        forKey:view];
-
-    return bounds;
-}
-
-#pragma mark - Vertical Scale
-
-static CGFloat SHA_ScaleForHeight(
-    CGFloat height,
-    CGFloat delta
-)
-{
-    if (height <= 0.0)
-        return 1.0;
-
-    CGFloat newHeight =
-        height + delta;
-
-    /*
-     * Không cho chiều cao <= 1 px.
-     */
-    if (newHeight < 1.0)
-        newHeight = 1.0;
-
-    return newHeight / height;
-}
-
-#pragma mark - Status Bar Scale
-
-static void SHA_ApplyStatusScale(
-    UIView *view
-)
-{
-    if (!view)
-        return;
-
-    if (!SHA_IsPortrait())
-        return;
-
-    CGRect bounds =
-        SHA_GetOriginalBounds(view);
-
-    CGFloat height =
-        bounds.size.height;
-
-    if (height <= 0.0)
-        return;
-
-    CGFloat scaleY =
-        SHA_ScaleForHeight(
-            height,
-            SHAStatusDelta
-        );
-
-    CGAffineTransform original =
-        SHA_GetOriginalTransform(view);
-
-    /*
-     * Chỉ scale theo chiều dọc.
-     *
-     * Không thay đổi:
-     * - X
-     * - Y
-     * - safeArea
-     * - gesture
-     */
-
-    CGAffineTransform transform =
-        CGAffineTransformScale(
-            original,
-            1.0,
-            scaleY
-        );
-
-    view.transform =
-        transform;
-}
-
-#pragma mark - Find Status Bar
-
-static BOOL SHA_IsStatusClass(
-    UIView *view
-)
-{
-    if (!view)
-        return NO;
-
-    NSString *name =
-        NSStringFromClass([view class]);
-
-    if ([name isEqualToString:@"_UIStatusBar"])
-        return YES;
-
-    if ([name isEqualToString:@"UIStatusBar"])
-        return YES;
-
-    if ([name isEqualToString:@"UIStatusBar_Modern"])
-        return YES;
-
-    if ([name isEqualToString:
-            @"SBMainDisplaySceneLayoutStatusBarView"])
-        return YES;
-
-    return NO;
-}
-
-static void SHA_SearchStatusBar(
-    UIView *root
-)
-{
-    if (!root)
-        return;
-
-    if (SHA_IsStatusClass(root))
-    {
-        SHA_ApplyStatusScale(root);
-        return;
-    }
-
-    NSArray *children =
-        [[root subviews] copy];
-
-    for (UIView *child in children)
-    {
-        SHA_SearchStatusBar(child);
-    }
-}
-
-#pragma mark - Home Bar Detection
-
-static BOOL SHA_IsHomePill(
-    UIView *view
-)
-{
-    if (!view)
-        return NO;
-
-    NSString *name =
-        NSStringFromClass([view class]);
-
-    if ([name isEqualToString:
-            @"MTLumaDodgePillView"])
-        return YES;
-
-    if ([name isEqualToString:
-            @"MTStaticColorPillView"])
-        return YES;
-
-    return NO;
-}
-
-#pragma mark - Home Visual Scale
-
-static void SHA_ApplyHomeVisualScale(
-    UIView *view
-)
-{
-    if (!view)
-        return;
-
-    if (!SHA_IsPortrait())
-        return;
-
-    CGRect bounds =
-        SHA_GetOriginalBounds(view);
-
-    CGFloat height =
-        bounds.size.height;
-
-    if (height <= 0.0)
-        return;
-
-    /*
-     * Home indicator visual thường rất thấp.
-     *
-     * Vì vậy delta được chuyển thành
-     * một hệ số an toàn thay vì trực tiếp
-     * cộng hàng chục pixel vào pill.
-     */
-
-    CGFloat visualDelta =
-        SHAHomeDelta * 0.10;
-
-    CGFloat scaleY =
-        SHA_ScaleForHeight(
-            height,
-            visualDelta
-        );
-
-    CGAffineTransform original =
-        SHA_GetOriginalTransform(view);
-
-    view.transform =
-        CGAffineTransformScale(
-            original,
-            1.0,
-            scaleY
-        );
-}
-
-#pragma mark - Home Bar Recursive Visual
-
-static void SHA_SearchHomeVisual(
-    UIView *root
-)
-{
-    if (!root)
-        return;
-
-    if (SHA_IsHomePill(root))
-    {
-        SHA_ApplyHomeVisualScale(root);
-        return;
-    }
-
-    NSArray *children =
-        [[root subviews] copy];
-
-    for (UIView *child in children)
-    {
-        SHA_SearchHomeVisual(child);
-    }
-}
-
-#pragma mark - UIKit Home Indicator
-
-%hook MTLumaDodgePillView
-
-- (void)layoutSubviews
-{
-    %orig;
+    double original =
+        %orig;
 
     SHA_LoadPreferences();
 
-    if (!SHA_IsPortrait())
-        return;
+    /*
+     * iOS:
+     * 1 = Portrait
+     * 2 = Portrait Upside Down
+     *
+     * Landscape:
+     * giữ nguyên hoàn toàn.
+     */
 
-    SHA_ApplyHomeVisualScale(
-        (UIView *)self
-    );
+    if (orientation == 1 ||
+        orientation == 2)
+    {
+        double result =
+            original + SHAStatusHeightDelta;
+
+        /*
+         * Không cho height <= 1.
+         */
+        if (result < 1.0)
+            result = 1.0;
+
+        return result;
+    }
+
+    return original;
 }
 
 %end
 
+#pragma mark - Modern Status Bar Provider
 
-%hook MTStaticColorPillView
+/*
+ * Một số iOS 16 dùng visual provider
+ * để bố trí nội dung Status Bar.
+ *
+ * Sau khi _UIStatusBar trả về height mới,
+ * provider sẽ layout lại toàn bộ nội dung.
+ */
 
-- (void)layoutSubviews
+%hook _UIStatusBarVisualProvider_iOS
+
+- (double)statusBarHeight
 {
-    %orig;
+    double original =
+        %orig;
 
     SHA_LoadPreferences();
 
     if (!SHA_IsPortrait())
-        return;
+        return original;
 
-    SHA_ApplyHomeVisualScale(
-        (UIView *)self
-    );
+    double result =
+        original + SHAStatusHeightDelta;
+
+    if (result < 1.0)
+        result = 1.0;
+
+    return result;
 }
 
 %end
 
-#pragma mark - Home Grabber Container
+#pragma mark - Home Bar Container
+
+/*
+ * MTLumaDodgePillView chỉ là visual pill.
+ *
+ * KHÔNG scale nó.
+ *
+ * SBHomeGrabberView là container chứa
+ * Home Indicator.
+ */
 
 %hook SBHomeGrabberView
 
@@ -445,80 +218,154 @@ static void SHA_SearchHomeVisual(
     if (!SHA_IsPortrait())
         return;
 
+    if (SHAHomeHeightDelta == 0.0)
+        return;
+
+    UIView *pill =
+        nil;
+
     /*
-     * Không transform SBHomeGrabberView itself.
+     * Tìm MTLumaDodgePillView.
+     */
+    for (UIView *subview in self.subviews)
+    {
+        NSString *name =
+            NSStringFromClass(
+                [subview class]
+            );
+
+        if ([name isEqualToString:
+                @"MTLumaDodgePillView"] ||
+            [name isEqualToString:
+                @"MTStaticColorPillView"])
+        {
+            pill = subview;
+            break;
+        }
+    }
+
+    if (!pill)
+        return;
+
+    /*
+     * KHÔNG thay đổi:
      *
-     * Nó có thể liên quan tới gesture.
+     * pill.frame
+     * pill.bounds
+     * pill.transform
      *
-     * Chỉ tìm các visual descendants.
+     * Vì như vậy chỉ làm icon/pill dày lên.
+     *
+     * Thay vào đó lấy container.
      */
 
-    SHA_SearchHomeVisual(
-        (UIView *)self
-    );
-}
+    UIView *container =
+        self;
 
-%end
+    CGRect frame =
+        container.frame;
 
-#pragma mark - Status Bar
+    CGFloat originalHeight =
+        frame.size.height;
 
-%hook _UIStatusBar
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (!SHA_IsPortrait())
+    if (originalHeight <= 0.0)
         return;
 
-    SHA_ApplyStatusScale(
-        (UIView *)self
-    );
+    /*
+     * Thay đổi chiều cao của visual
+     * container.
+     */
+
+    CGFloat newHeight =
+        originalHeight +
+        SHAHomeHeightDelta;
+
+    if (newHeight < 1.0)
+        newHeight = 1.0;
+
+    /*
+     * Giữ đáy nguyên vị trí.
+     *
+     * Nghĩa là:
+     *
+     * +30
+     * -> vùng Home Bar cao thêm 30 px
+     *    lên phía trên.
+     *
+     * -30
+     * -> vùng thấp xuống 30 px.
+     */
+
+    CGFloat bottom =
+        frame.origin.y +
+        frame.size.height;
+
+    frame.size.height =
+        newHeight;
+
+    frame.origin.y =
+        bottom - newHeight;
+
+    /*
+     * Chỉ layout visual container.
+     *
+     * Không thay safe area.
+     * Không thay gesture recognizer.
+     */
+
+    [UIView performWithoutAnimation:
+        ^{
+            container.frame =
+                frame;
+
+            [container setNeedsLayout];
+
+            [container layoutIfNeeded];
+        }
+    ];
 }
 
 %end
 
+#pragma mark - Home Bar Visual Container Search
 
-%hook UIStatusBar
+/*
+ * Một số iOS 16 đặt pill sâu hơn một cấp.
+ *
+ * Hook này tìm SBHomeGrabberView trong
+ * hierarchy của SpringBoard nhưng KHÔNG
+ * đụng vào MTLumaDodgePillView.
+ */
 
-- (void)layoutSubviews
+static void SHA_FindHomeGrabber(
+    UIView *root
+)
 {
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (!SHA_IsPortrait())
+    if (!root)
         return;
 
-    SHA_ApplyStatusScale(
-        (UIView *)self
-    );
-}
+    NSString *name =
+        NSStringFromClass(
+            [root class]
+        );
 
-%end
-
-
-%hook SBMainDisplaySceneLayoutStatusBarView
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (!SHA_IsPortrait())
+    if ([name isEqualToString:
+            @"SBHomeGrabberView"])
+    {
+        [root setNeedsLayout];
         return;
+    }
 
-    SHA_ApplyStatusScale(
-        (UIView *)self
-    );
+    NSArray *children =
+        [[root subviews] copy];
+
+    for (UIView *child in children)
+    {
+        SHA_FindHomeGrabber(child);
+    }
 }
 
-%end
-
-#pragma mark - Window Search
+#pragma mark - SpringBoard Windows
 
 %hook UIWindow
 
@@ -526,32 +373,28 @@ static void SHA_SearchHomeVisual(
 {
     %orig;
 
+    /*
+     * Chỉ SpringBoard/Home UI.
+     *
+     * Không xử lý landscape.
+     */
+
     SHA_LoadPreferences();
 
     if (!SHA_IsPortrait())
         return;
 
-    /*
-     * Chỉ tìm Status Bar.
-     */
-    SHA_SearchStatusBar(
-        (UIView *)self
-    );
+    if (SHAHomeHeightDelta == 0.0)
+        return;
 
-    /*
-     * Home Bar visual.
-     *
-     * Không chỉnh UIWindow.
-     * Không chỉnh safeArea.
-     */
-    SHA_SearchHomeVisual(
+    SHA_FindHomeGrabber(
         (UIView *)self
     );
 }
 
 %end
 
-#pragma mark - Settings Changed
+#pragma mark - Settings Notification
 
 static void SHA_SettingsChanged(
     CFNotificationCenterRef center,
@@ -567,10 +410,36 @@ static void SHA_SettingsChanged(
         dispatch_get_main_queue(),
         ^{
             /*
-             * Các view sẽ tự layout lại.
-             * Hook layoutSubviews sẽ áp dụng
-             * scale mới.
+             * Trigger layout lại.
              */
+            UIApplication *application =
+                [UIApplication sharedApplication];
+
+            if (!application)
+                return;
+
+            if (@available(iOS 13.0, *))
+            {
+                for (UIScene *scene
+                     in application.connectedScenes)
+                {
+                    if (![scene
+                            isKindOfClass:
+                                [UIWindowScene class]])
+                    {
+                        continue;
+                    }
+
+                    UIWindowScene *windowScene =
+                        (UIWindowScene *)scene;
+
+                    for (UIWindow *window
+                         in windowScene.windows)
+                    {
+                        [window setNeedsLayout];
+                    }
+                }
+            }
         }
     );
 }
@@ -581,12 +450,6 @@ static void SHA_SettingsChanged(
 {
     @autoreleasepool
     {
-        SHAOriginalTransforms =
-            [NSMapTable weakToStrongObjectsMapTable];
-
-        SHAOriginalFrames =
-            [NSMapTable weakToStrongObjectsMapTable];
-
         SHA_LoadPreferences();
 
         CFNotificationCenterAddObserver(
