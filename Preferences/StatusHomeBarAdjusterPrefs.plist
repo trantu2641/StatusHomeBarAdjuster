@@ -4,10 +4,8 @@
 
 <plist version="1.0">
 <dict>
-
     <key>entry</key>
     <dict>
-
         <key>bundle</key>
         <string>StatusHomeBarAdjusterPrefs</string>
 
@@ -19,8 +17,6 @@
 
         <key>label</key>
         <string>Status &amp; Home Bar Adjuster</string>
-
     </dict>
-
 </dict>
 </plist>
