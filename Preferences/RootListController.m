@@ -23,12 +23,13 @@
             initWithSuiteName:@"com.congtu.statushomebaradjuster"];
 
     NSInteger status =
-        MAX(-120, MIN(120,
-        [defaults integerForKey:@"StatusBarOffset"]));
+        [defaults integerForKey:@"StatusBarOffset"];
 
     NSInteger home =
-        MAX(-120, MIN(120,
-        [defaults integerForKey:@"HomeBarOffset"]));
+        [defaults integerForKey:@"HomeBarOffset"];
+
+    status = MAX(-120, MIN(120, status));
+    home = MAX(-120, MIN(120, home));
 
     [defaults setInteger:status
                   forKey:@"StatusBarOffset"];
