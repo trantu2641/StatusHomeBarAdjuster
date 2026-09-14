@@ -3,54 +3,38 @@ TARGET = iphone:clang:16.5:15.0
 
 include $(THEOS)/makefiles/common.mk
 
-
-# ==========================================
-# TWEAK
-# ==========================================
-
 TWEAK_NAME = StatusHomeBarAdjuster
 
 StatusHomeBarAdjuster_FILES = Tweak.xm
 StatusHomeBarAdjuster_CFLAGS = -fobjc-arc
-StatusHomeBarAdjuster_FRAMEWORKS = UIKit Foundation CoreFoundation
-
+StatusHomeBarAdjuster_FRAMEWORKS = UIKit Foundation
 StatusHomeBarAdjuster_INSTALL_TARGET_PROCESSES = SpringBoard
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
 
-# ==========================================
-# PREFERENCE BUNDLE
-# ==========================================
+BUNDLE_NAME = SHAStatusHomeBarAdjusterPrefs
 
-BUNDLE_NAME = StatusHomeBarAdjusterPrefs
+SHAStatusHomeBarAdjusterPrefs_FILES = \
+	Preferences/SHAStatusHomeBarAdjusterController.m
 
-StatusHomeBarAdjusterPrefs_FILES = \
-    Preferences/RootListController.m
+SHAStatusHomeBarAdjusterPrefs_CFLAGS = -fobjc-arc
+SHAStatusHomeBarAdjusterPrefs_FRAMEWORKS = UIKit Foundation
+SHAStatusHomeBarAdjusterPrefs_PRIVATE_FRAMEWORKS = Preferences
 
-StatusHomeBarAdjusterPrefs_CFLAGS = -fobjc-arc
+SHAStatusHomeBarAdjusterPrefs_RESOURCE_FILES = \
+	Preferences/SHAStatusHomeBarAdjusterPrefs/Root.plist \
+	Preferences/SHAStatusHomeBarAdjusterPrefs/SHAStatusHomeBarAdjusterPrefs.plist
 
-StatusHomeBarAdjusterPrefs_FRAMEWORKS = UIKit
-
-StatusHomeBarAdjusterPrefs_PRIVATE_FRAMEWORKS = Preferences
-
-StatusHomeBarAdjusterPrefs_RESOURCE_FILES = \
-    Preferences/StatusHomeBarAdjusterPrefs/Info.plist \
-    Preferences/StatusHomeBarAdjusterPrefs/Root.plist
-
-StatusHomeBarAdjusterPrefs_INSTALL_PATH = /Library/PreferenceBundles
+SHAStatusHomeBarAdjusterPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
 
-# ==========================================
-# PREFERENCE LOADER
-# ==========================================
-
 after-stage::
-	@mkdir -p \
-		$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
-
-	@cp \
-		Preferences/StatusHomeBarAdjusterPrefs.plist \
+	@mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
+	@cp Preferences/SHAStatusHomeBarAdjusterPrefs.plist \
 		$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/
+
+	@cp Preferences/SHAStatusHomeBarAdjusterPrefs/Info.plist \
+		$(THEOS_STAGING_DIR)/Library/PreferenceBundles/SHAStatusHomeBarAdjusterPrefs.bundle/Info.plist
