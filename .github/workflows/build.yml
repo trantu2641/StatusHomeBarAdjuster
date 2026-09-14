@@ -11,18 +11,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Theos
-        uses: theos/theos-action@main
-        with:
-          theos-src: theos/theos
-          sdks: iPhoneOS15.2.sdk
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install ldid
 
-      - name: Build RootHide Debian
+      - name: Install Theos
+        run: |
+          git clone --recursive https://github.com/theos/theos.git $HOME/theos
+
+      - name: Install iOS SDK
+        run: |
+          git clone https://github.com/theos/sdks.git $HOME/sdks
+          cp -R $HOME/sdks/iPhoneOS15.2.sdk $HOME/theos/sdks/
+
+      - name: Install RootHide support
+        run: |
+          git clone https://github.com/RootHide/Developer.git $HOME/roothide-developer
+          if [ -d "$HOME/roothide-developer/theos" ]; then
+            cp -R "$HOME/roothide-developer/theos/"* "$HOME/theos/" || true
+          fi
+
+      - name: Build
+        env:
+          THEOS: ${{ github.workspace }}/theos
         run: |
           make clean
           make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
 
-      - name: Find package
+      - name: Show packages
         run: |
           find packages -type f -name "*.deb" -print
 
