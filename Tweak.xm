@@ -20,7 +20,8 @@ static CGFloat SHA_Clamp(CGFloat value) {
 
 static void SHA_LoadPreferences(void) {
 
-    CFStringRef domain = CFSTR("com.tutu.statushomebaradjuster");
+    CFStringRef domain =
+        CFSTR("com.congtu.statushomebaradjuster");
 
     CFPreferencesAppSynchronize(domain);
 
@@ -75,9 +76,9 @@ static void SHA_LoadPreferences(void) {
 }
 
 
-/* =========================
+/* ==========================================
    STATUS BAR
-   ========================= */
+   ========================================== */
 
 %hook UIStatusBar
 
@@ -105,9 +106,9 @@ static void SHA_LoadPreferences(void) {
 %end
 
 
-/* =========================
+/* ==========================================
    HOME INDICATOR
-   ========================= */
+   ========================================== */
 
 %hook _UIHomeIndicatorView
 
@@ -135,9 +136,9 @@ static void SHA_LoadPreferences(void) {
 %end
 
 
-/* =========================
+/* ==========================================
    INITIALIZATION
-   ========================= */
+   ========================================== */
 
 %ctor {
     @autoreleasepool {
