@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+
+<plist version="1.0">
+<dict>
+
+    <key>PreferenceSpecifiers</key>
+    <array>
+
+        <dict>
+            <key>Type</key>
+            <string>PSGroupCell</string>
+
+            <key>Label</key>
+            <string>Status Bar</string>
+        </dict>
+
+        <dict>
+            <key>Type</key>
+            <string>PSEditTextCell</string>
+
+            <key>Key</key>
+            <string>StatusBarOffset</string>
+
+            <key>DefaultValue</key>
+            <real>0</real>
+
+            <key>Title</key>
+            <string>Status Bar Y</string>
+
+            <key>KeyboardType</key>
+            <string>NumbersAndPunctuation</string>
+
+            <key>IsNumeric</key>
+            <true/>
+
+            <key>PostNotification</key>
+            <string>com.tutu.statushomebaradjuster/preferences.changed</string>
+        </dict>
+
+        <dict>
+            <key>Type</key>
+            <string>PSGroupCell</string>
+
+            <key>Label</key>
+            <string>Home Bar</string>
+        </dict>
+
+        <dict>
+            <key>Type</key>
+            <string>PSEditTextCell</string>
+
+            <key>Key</key>
+            <string>HomeBarOffset</string>
+
+            <key>DefaultValue</key>
+            <real>0</real>
+
+            <key>Title</key>
+            <string>Home Bar Y</string>
+
+            <key>KeyboardType</key>
+            <string>NumbersAndPunctuation</string>
+
+            <key>IsNumeric</key>
+            <true/>
+
+            <key>PostNotification</key>
+            <string>com.tutu.statushomebaradjuster/preferences.changed</string>
+        </dict>
+
+        <dict>
+            <key>Type</key>
+            <string>PSGroupCell</string>
+
+            <key>FooterText</key>
+            <string>Âm = lên. Dương = xuống. Phạm vi -120 đến +120 px. Khởi động lại SpringBoard để áp dụng.</string>
+        </dict>
+
+    </array>
+
+    <key>Title</key>
+    <string>Status & Home Bar Adjuster</string>
+
+</dict>
+</plist>
