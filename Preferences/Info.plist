@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+<!DOCTYPE plist PUBLIC
+"-//Apple//DTD PLIST 1.0//EN"
 "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 
 <plist version="1.0">
 <dict>
-
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
 
@@ -12,28 +12,27 @@
     <string>Status &amp; Home Bar Adjuster</string>
 
     <key>CFBundleExecutable</key>
-    <string>StatusHomeBarAdjusterPrefs</string>
+    <string>SHAStatusHomeBarAdjusterPrefs</string>
 
     <key>CFBundleIdentifier</key>
-    <string>com.congtu.statushomebaradjusterprefs</string>
+    <string>com.congtu.sha.statushomebaradjusterprefs</string>
 
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
 
     <key>CFBundleName</key>
-    <string>StatusHomeBarAdjusterPrefs</string>
+    <string>SHAStatusHomeBarAdjusterPrefs</string>
 
     <key>CFBundlePackageType</key>
     <string>BNDL</string>
 
     <key>CFBundleShortVersionString</key>
-    <string>1.0.1</string>
+    <string>1.0.3</string>
 
     <key>CFBundleVersion</key>
     <string>1</string>
 
     <key>NSPrincipalClass</key>
-    <string>RootListController</string>
-
+    <string>SHAStatusHomeBarAdjusterController</string>
 </dict>
 </plist>
