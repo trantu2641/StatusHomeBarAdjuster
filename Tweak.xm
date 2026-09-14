@@ -41,8 +41,13 @@ static void SHA_LoadPreferences(void)
             &value
         );
 
-        SHAStatusOffset =
-            (CGFloat)MAX(-120.0, MIN(120.0, value));
+        if (value < -120.0)
+            value = -120.0;
+
+        if (value > 120.0)
+            value = 120.0;
+
+        SHAStatusOffset = (CGFloat)value;
     }
 
     if (homeValue &&
@@ -56,8 +61,13 @@ static void SHA_LoadPreferences(void)
             &value
         );
 
-        SHAHomeOffset =
-            (CGFloat)MAX(-120.0, MIN(120.0, value));
+        if (value < -120.0)
+            value = -120.0;
+
+        if (value > 120.0)
+            value = 120.0;
+
+        SHAHomeOffset = (CGFloat)value;
     }
 
     if (statusValue)
@@ -67,7 +77,7 @@ static void SHA_LoadPreferences(void)
         CFRelease(homeValue);
 }
 
-#pragma mark - Notification
+#pragma mark - Settings Notification
 
 static void SHA_PreferencesChanged(
     CFNotificationCenterRef center,
@@ -80,38 +90,21 @@ static void SHA_PreferencesChanged(
     SHA_LoadPreferences();
 }
 
-#pragma mark - Apply Status Bar
+#pragma mark - Status Bar
 
-static void SHA_ApplyStatusBarToObject(id object)
+%hook UIStatusBar
+
+- (void)setFrame:(CGRect)frame
 {
-    if (!object)
-        return;
+    SHA_LoadPreferences();
 
-    UIView *view = nil;
+    if (SHAStatusOffset != 0.0)
+    {
+        frame.origin.y += SHAStatusOffset;
+    }
 
-    if ([object isKindOfClass:[UIView class]])
-        view = (UIView *)object;
-
-    if (!view)
-        return;
-
-    /*
-     * Không sửa frame gốc.
-     * Translation giúp iOS tiếp tục quản lý
-     * kích thước/layout của status bar.
-     */
-    CGAffineTransform transform =
-        CGAffineTransformMakeTranslation(
-            0.0,
-            SHAStatusOffset
-        );
-
-    view.transform = transform;
+    %orig(frame);
 }
-
-#pragma mark - Status Bar Container
-
-%hook SBMainDisplaySceneLayoutStatusBarView
 
 - (void)layoutSubviews
 {
@@ -119,63 +112,20 @@ static void SHA_ApplyStatusBarToObject(id object)
 
     SHA_LoadPreferences();
 
-    /*
-     * iOS 13+ SpringBoard giữ status bar
-     * trong ivar _statusBar.
-     */
-    id statusBar = nil;
+    UIView *view = (UIView *)self;
 
-    @try
+    if (SHAStatusOffset == 0.0)
     {
-        statusBar = [self valueForKey:@"_statusBar"];
+        view.transform = CGAffineTransformIdentity;
     }
-    @catch (__unused NSException *exception)
+    else
     {
-        statusBar = nil;
+        view.transform =
+            CGAffineTransformMakeTranslation(
+                0.0,
+                SHAStatusOffset
+            );
     }
-
-    if (statusBar)
-    {
-        SHA_ApplyStatusBarToObject(statusBar);
-    }
-
-    /*
-     * Một số layout version đặt trực tiếp
-     * content trong container.
-     */
-    if (SHAStatusOffset != 0.0)
-    {
-        UIView *view = (UIView *)self;
-
-        /*
-         * Chỉ dịch container nếu không lấy được
-         * status bar riêng.
-         */
-        if (!statusBar)
-        {
-            view.transform =
-                CGAffineTransformMakeTranslation(
-                    0.0,
-                    SHAStatusOffset
-                );
-        }
-    }
-}
-
-%end
-
-#pragma mark - UIStatusBar Fallback
-
-%hook UIStatusBar
-
-- (void)setFrame:(CGRect)frame
-{
-    if (SHAStatusOffset != 0.0)
-    {
-        frame.origin.y += SHAStatusOffset;
-    }
-
-    %orig(frame);
 }
 
 %end
@@ -186,6 +136,8 @@ static void SHA_ApplyStatusBarToObject(id object)
 
 - (void)setFrame:(CGRect)frame
 {
+    SHA_LoadPreferences();
+
     if (SHAHomeOffset != 0.0)
     {
         frame.origin.y += SHAHomeOffset;
@@ -198,63 +150,117 @@ static void SHA_ApplyStatusBarToObject(id object)
 {
     %orig;
 
-    if (SHAHomeOffset == 0.0)
-    {
-        return;
-    }
+    SHA_LoadPreferences();
 
     UIView *view = (UIView *)self;
 
-    /*
-     * Home Indicator thường được layout lại
-     * nhiều lần. Translation được áp dụng sau
-     * khi UIKit hoàn thành layout.
-     */
-    view.transform =
-        CGAffineTransformMakeTranslation(
-            0.0,
-            SHAHomeOffset
-        );
+    if (SHAHomeOffset == 0.0)
+    {
+        view.transform = CGAffineTransformIdentity;
+    }
+    else
+    {
+        view.transform =
+            CGAffineTransformMakeTranslation(
+                0.0,
+                SHAHomeOffset
+            );
+    }
 }
 
 %end
 
-#pragma mark - Runtime Fallback For Home Indicator
+#pragma mark - Runtime Status Bar Fallback
 
-static void SHA_ApplyHomeIndicatorToWindows(void)
+static void SHA_AdjustStatusBarViews(void)
+{
+    if (SHAStatusOffset == 0.0)
+        return;
+
+    Class statusClass =
+        NSClassFromString(@"SBMainDisplaySceneLayoutStatusBarView");
+
+    if (!statusClass)
+        return;
+
+    NSArray *windows = nil;
+
+    if (@available(iOS 13.0, *))
+    {
+        NSMutableArray *allWindows =
+            [NSMutableArray array];
+
+        for (UIScene *scene in
+             [UIApplication sharedApplication].connectedScenes)
+        {
+            if (![scene isKindOfClass:[UIWindowScene class]])
+                continue;
+
+            UIWindowScene *windowScene =
+                (UIWindowScene *)scene;
+
+            [allWindows addObjectsFromArray:
+                windowScene.windows];
+        }
+
+        windows = [allWindows copy];
+    }
+
+    for (UIWindow *window in windows)
+    {
+        for (UIView *subview in window.subviews)
+        {
+            if ([subview isKindOfClass:statusClass])
+            {
+                subview.transform =
+                    CGAffineTransformMakeTranslation(
+                        0.0,
+                        SHAStatusOffset
+                    );
+            }
+        }
+    }
+}
+
+#pragma mark - Runtime Home Indicator Fallback
+
+static void SHA_AdjustHomeIndicatorViews(void)
 {
     if (SHAHomeOffset == 0.0)
         return;
 
-    UIApplication *application =
-        [UIApplication sharedApplication];
-
-    if (!application)
+    if (!@available(iOS 13.0, *))
         return;
 
-    NSArray *windows = application.windows;
-
-    for (UIWindow *window in windows)
+    for (UIScene *scene in
+         [UIApplication sharedApplication].connectedScenes)
     {
-        if (!window)
+        if (![scene isKindOfClass:[UIWindowScene class]])
             continue;
 
-        NSArray *subviews = window.subviews;
+        UIWindowScene *windowScene =
+            (UIWindowScene *)scene;
 
-        for (UIView *view in subviews)
+        for (UIWindow *window in windowScene.windows)
         {
-            NSString *className =
-                NSStringFromClass([view class]);
+            NSArray *subviews =
+                [window.subviews copy];
 
-            if ([className rangeOfString:@"HomeIndicator"
-                                  options:NSCaseInsensitiveSearch].location
-                != NSNotFound)
+            for (UIView *view in subviews)
             {
-                view.transform =
-                    CGAffineTransformMakeTranslation(
-                        0.0,
-                        SHAHomeOffset
-                    );
+                NSString *className =
+                    NSStringFromClass([view class]);
+
+                if ([className rangeOfString:@"HomeIndicator"
+                                      options:NSCaseInsensitiveSearch].location
+                    != NSNotFound)
+                {
+                    view.transform =
+                        CGAffineTransformMakeTranslation(
+                            0.0,
+                            SHAHomeOffset
+                        );
+                }
             }
         }
     }
@@ -279,10 +285,6 @@ static void SHA_ApplyHomeIndicatorToWindows(void)
             CFNotificationSuspensionBehaviorDeliverImmediately
         );
 
-        /*
-         * Delay lần đầu để SpringBoard tạo đầy đủ
-         * status bar/home indicator hierarchy.
-         */
         dispatch_after(
             dispatch_time(
                 DISPATCH_TIME_NOW,
@@ -291,7 +293,9 @@ static void SHA_ApplyHomeIndicatorToWindows(void)
             dispatch_get_main_queue(),
             ^{
                 SHA_LoadPreferences();
-                SHA_ApplyHomeIndicatorToWindows();
+
+                SHA_AdjustStatusBarViews();
+                SHA_AdjustHomeIndicatorViews();
             }
         );
     }
