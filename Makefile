@@ -29,7 +29,7 @@ SHAStatusHomeBarAdjusterPrefs_PRIVATE_FRAMEWORKS = \
 	Preferences
 
 SHAStatusHomeBarAdjusterPrefs_RESOURCE_FILES = \
-	Preferences/SHAStatusHomeBarAdjusterPrefs/Root.plist
+	Preferences/Root.plist
 
 SHAStatusHomeBarAdjusterPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
@@ -38,9 +38,10 @@ include $(THEOS_MAKE_PATH)/bundle.mk
 
 after-stage::
 	@mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
+	@mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceBundles/SHAStatusHomeBarAdjusterPrefs.bundle
 
 	@cp Preferences/SHAStatusHomeBarAdjusterPrefs.plist \
 		$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/SHAStatusHomeBarAdjusterPrefs.plist
 
-	@cp Preferences/SHAStatusHomeBarAdjusterPrefs/Info.plist \
+	@cp Preferences/Info.plist \
 		$(THEOS_STAGING_DIR)/Library/PreferenceBundles/SHAStatusHomeBarAdjusterPrefs.bundle/Info.plist
