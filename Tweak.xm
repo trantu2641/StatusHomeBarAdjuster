@@ -1,9 +1,10 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <objc/runtime.h>
 
-static CGFloat SHAStatusHeightDelta = 0.0;
-static CGFloat SHAHomeHeightDelta = 0.0;
+static CGFloat SHAStatusDelta = 0.0;
+static CGFloat SHAHomeDelta = 0.0;
 
 #pragma mark - Preferences
 
@@ -14,94 +15,83 @@ static void SHA_LoadPreferences(void)
 
     CFPreferencesAppSynchronize(domain);
 
-    CFPropertyListRef statusValue =
+    CFPropertyListRef status =
         CFPreferencesCopyAppValue(
             CFSTR("StatusBarOffset"),
             domain
         );
 
-    CFPropertyListRef homeValue =
+    CFPropertyListRef home =
         CFPreferencesCopyAppValue(
             CFSTR("HomeBarOffset"),
             domain
         );
 
-    SHAStatusHeightDelta = 0.0;
-    SHAHomeHeightDelta = 0.0;
+    SHAStatusDelta = 0.0;
+    SHAHomeDelta = 0.0;
 
-    if (statusValue &&
-        CFGetTypeID(statusValue) == CFNumberGetTypeID())
+    if (status &&
+        CFGetTypeID(status) == CFNumberGetTypeID())
     {
         double value = 0.0;
 
         CFNumberGetValue(
-            (CFNumberRef)statusValue,
+            (CFNumberRef)status,
             kCFNumberDoubleType,
             &value
         );
 
-        value = MAX(-120.0, MIN(120.0, value));
-
-        SHAStatusHeightDelta =
-            (CGFloat)value;
+        SHAStatusDelta =
+            (CGFloat)MAX(-120.0, MIN(120.0, value));
     }
 
-    if (homeValue &&
-        CFGetTypeID(homeValue) == CFNumberGetTypeID())
+    if (home &&
+        CFGetTypeID(home) == CFNumberGetTypeID())
     {
         double value = 0.0;
 
         CFNumberGetValue(
-            (CFNumberRef)homeValue,
+            (CFNumberRef)home,
             kCFNumberDoubleType,
             &value
         );
 
-        value = MAX(-120.0, MIN(120.0, value));
-
-        SHAHomeHeightDelta =
-            (CGFloat)value;
+        SHAHomeDelta =
+            (CGFloat)MAX(-120.0, MIN(120.0, value));
     }
 
-    if (statusValue)
-        CFRelease(statusValue);
+    if (status)
+        CFRelease(status);
 
-    if (homeValue)
-        CFRelease(homeValue);
+    if (home)
+        CFRelease(home);
 }
 
 #pragma mark - Portrait
 
 static BOOL SHA_IsPortrait(void)
 {
-    UIApplication *application =
+    UIApplication *app =
         [UIApplication sharedApplication];
 
-    if (!application)
+    if (!app)
         return NO;
 
     if (@available(iOS 13.0, *))
     {
-        for (UIScene *scene in
-             application.connectedScenes)
+        for (UIScene *scene in app.connectedScenes)
         {
-            if (![scene
-                    isKindOfClass:
-                        [UIWindowScene class]])
-            {
+            if (![scene isKindOfClass:[UIWindowScene class]])
                 continue;
-            }
 
-            UIWindowScene *windowScene =
+            UIWindowScene *ws =
                 (UIWindowScene *)scene;
 
-            UIInterfaceOrientation orientation =
-                windowScene.interfaceOrientation;
+            UIInterfaceOrientation o =
+                ws.interfaceOrientation;
 
-            if (orientation ==
-                    UIInterfaceOrientationPortrait ||
-                orientation ==
-                    UIInterfaceOrientationPortraitUpsideDown)
+            if (o == UIInterfaceOrientationPortrait ||
+                o == UIInterfaceOrientationPortraitUpsideDown)
             {
                 return YES;
             }
@@ -111,13 +101,12 @@ static BOOL SHA_IsPortrait(void)
     return NO;
 }
 
-#pragma mark - Status Bar
+#pragma mark - Status Bar Height
 
 /*
- * Không đụng icon.
+ * KHÔNG scale icon.
  *
- * Thay đổi height mà Status Bar dùng
- * cho quá trình layout.
+ * Thay đổi chiều cao layout của Status Bar.
  */
 
 %hook _UIStatusBar
@@ -129,25 +118,27 @@ static BOOL SHA_IsPortrait(void)
 
     SHA_LoadPreferences();
 
+    /*
+     * Chỉ Portrait.
+     */
     if (orientation != 1 &&
         orientation != 2)
     {
         return original;
     }
 
-    double height =
-        original +
-        SHAStatusHeightDelta;
+    double result =
+        original + SHAStatusDelta;
 
-    if (height < 1.0)
-        height = 1.0;
+    if (result < 1.0)
+        result = 1.0;
 
-    return height;
+    return result;
 }
 
 %end
 
-#pragma mark - Status Bar Visual Provider
+#pragma mark - Status Bar Modern Provider
 
 %hook _UIStatusBarVisualProvider_iOS
 
@@ -161,123 +152,88 @@ static BOOL SHA_IsPortrait(void)
     if (!SHA_IsPortrait())
         return original;
 
-    double height =
-        original +
-        SHAStatusHeightDelta;
+    double result =
+        original + SHAStatusDelta;
 
-    if (height < 1.0)
-        height = 1.0;
+    if (result < 1.0)
+        result = 1.0;
 
-    return height;
+    return result;
 }
 
 %end
 
-#pragma mark - Home Bar
+#pragma mark - Home Bar Visual Only
 
 /*
- * Quan trọng:
+ * KHÔNG hook:
  *
- * Không scale MTLumaDodgePillView.
+ * SBHomeGrabberView
  *
- * Không thay đổi pill.frame.
+ * KHÔNG thay frame của Home Grabber.
  *
- * Không thay đổi pill.transform.
+ * KHÔNG thay safeAreaInsets.
  *
- * Chỉ thay đổi layout height của
- * SBHomeGrabberView.
+ * KHÔNG thay gesture.
+ *
+ * Chỉ xử lý visual pill.
  */
 
-%hook SBHomeGrabberView
-
-- (void)layoutSubviews
+static void SHA_ResizeHomeVisual(UIView *view)
 {
-    %orig;
-
-    SHA_LoadPreferences();
+    if (!view)
+        return;
 
     if (!SHA_IsPortrait())
         return;
 
-    if (SHAHomeHeightDelta == 0.0)
+    if (SHAHomeDelta == 0.0)
+        return;
+
+    CGRect bounds =
+        view.bounds;
+
+    CGFloat oldHeight =
+        bounds.size.height;
+
+    if (oldHeight <= 0.0)
         return;
 
     /*
-     * SBHomeGrabberView là private class.
-     *
-     * Ép sang UIView để compiler biết
-     * đây là UIView.
+     * Chiều cao mới theo đúng px.
      */
-
-    UIView *container =
-        (UIView *)self;
-
-    if (!container)
-        return;
-
-    CGRect frame =
-        container.frame;
-
-    CGFloat originalHeight =
-        frame.size.height;
-
-    if (originalHeight <= 0.0)
-        return;
-
-    /*
-     * Height thay đổi trực tiếp theo px.
-     *
-     * +30 = cao thêm 30 px
-     * -30 = thấp đi 30 px
-     */
-
     CGFloat newHeight =
-        originalHeight +
-        SHAHomeHeightDelta;
+        oldHeight + SHAHomeDelta;
 
     if (newHeight < 1.0)
         newHeight = 1.0;
 
     /*
-     * Giữ mép dưới.
-     *
-     * Phần visual mở rộng lên trên.
+     * Giữ tâm visual.
      */
+    CGFloat centerY =
+        CGRectGetMidY(bounds);
 
-    CGFloat bottom =
-        frame.origin.y +
-        frame.size.height;
-
-    frame.size.height =
+    bounds.size.height =
         newHeight;
 
-    frame.origin.y =
-        bottom - newHeight;
+    bounds.origin.y =
+        centerY - (newHeight / 2.0);
 
     /*
-     * Chỉ thay frame của container.
+     * Chỉ thay bounds của visual.
      *
-     * Không thay:
-     * safeAreaInsets
-     * additionalSafeAreaInsets
-     * gesture recognizer
-     * hitTest
+     * Không transform.
+     * Không thay frame.
+     * Không thay gesture.
      */
-
-    container.frame =
-        frame;
+    view.bounds =
+        bounds;
 }
 
-%end
+#pragma mark - Home Pill
 
-#pragma mark - Home Bar Visual Layout
-
-/*
- * Một số phiên bản iOS layout lại
- * Home Grabber ngay sau khi window layout.
- */
-
-%hook UIWindow
+%hook MTLumaDodgePillView
 
 - (void)layoutSubviews
 {
@@ -285,25 +241,24 @@ static BOOL SHA_IsPortrait(void)
 
     SHA_LoadPreferences();
 
-    if (!SHA_IsPortrait())
-        return;
+    SHA_ResizeHomeVisual(
+        (UIView *)self
+    );
+}
 
-    /*
-     * Không scale UIWindow.
-     *
-     * Không thay safe area.
-     */
+%end
 
-    if (SHAHomeHeightDelta == 0.0 &&
-        SHAStatusHeightDelta == 0.0)
-    {
-        return;
-    }
+%hook MTStaticColorPillView
 
-    /*
-     * Cho UIKit/SpringBoard hoàn thành
-     * layout tự nhiên.
-     */
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    SHA_ResizeHomeVisual(
+        (UIView *)self
+    );
 }
 
 %end
@@ -323,16 +278,19 @@ static void SHA_SettingsChanged(
     dispatch_async(
         dispatch_get_main_queue(),
         ^{
-            UIApplication *application =
+            /*
+             * Chỉ yêu cầu layout lại.
+             */
+            UIApplication *app =
                 [UIApplication sharedApplication];
 
-            if (!application)
+            if (!app)
                 return;
 
             if (@available(iOS 13.0, *))
             {
-                for (UIScene *scene in
-                     application.connectedScenes)
+                for (UIScene *scene
+                     in app.connectedScenes)
                 {
                     if (![scene
                             isKindOfClass:
@@ -341,11 +299,11 @@ static void SHA_SettingsChanged(
                         continue;
                     }
 
-                    UIWindowScene *windowScene =
+                    UIWindowScene *ws =
                         (UIWindowScene *)scene;
 
-                    for (UIWindow *window in
-                         windowScene.windows)
+                    for (UIWindow *window
+                         in ws.windows)
                     {
                         [window setNeedsLayout];
                     }
