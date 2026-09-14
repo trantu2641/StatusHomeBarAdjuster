@@ -1,22 +1,56 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
- "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+
+<!DOCTYPE plist PUBLIC
+"-//Apple//DTD PLIST 1.0//EN"
+"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 
 <plist version="1.0">
+
 <dict>
-    <key>entry</key>
-    <dict>
-        <key>bundle</key>
-        <string>StatusHomeBarAdjusterPrefs</string>
 
-        <key>cell</key>
-        <string>PSLinkCell</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
 
-        <key>isController</key>
-        <true/>
 
-        <key>label</key>
-        <string>Status &amp; Home Bar Adjuster</string>
-    </dict>
+    <key>CFBundleDisplayName</key>
+    <string>Status &amp; Home Bar Adjuster</string>
+
+
+    <key>CFBundleExecutable</key>
+    <string>SHAStatusHomeBarAdjusterPrefs</string>
+
+
+    <key>CFBundleIdentifier</key>
+    <string>com.congtu.sha.statushomebaradjusterprefs</string>
+
+
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+
+
+    <key>CFBundleName</key>
+    <string>SHAStatusHomeBarAdjusterPrefs</string>
+
+
+    <key>CFBundlePackageType</key>
+    <string>BNDL</string>
+
+
+    <key>CFBundleShortVersionString</key>
+    <string>1.0.3</string>
+
+
+    <key>CFBundleVersion</key>
+    <string>1</string>
+
+
+    <!--
+        KHÔNG dùng RootListController
+    -->
+
+    <key>NSPrincipalClass</key>
+    <string>SHAStatusHomeBarAdjusterController</string>
+
 </dict>
+
 </plist>
