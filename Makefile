@@ -8,25 +8,38 @@ TWEAK_NAME = StatusHomeBarAdjuster
 StatusHomeBarAdjuster_FILES = Tweak.xm
 StatusHomeBarAdjuster_CFLAGS = -fobjc-arc
 StatusHomeBarAdjuster_FRAMEWORKS = UIKit Foundation CoreFoundation
-
 StatusHomeBarAdjuster_INSTALL_TARGET_PROCESSES = SpringBoard
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
+
 BUNDLE_NAME = StatusHomeBarAdjusterPrefs
 
-$(BUNDLE_NAME)_FILES = Preferences/StatusHomeBarAdjusterPrefs.bundle/RootListController.m
-$(BUNDLE_NAME)_FRAMEWORKS = UIKit
-$(BUNDLE_NAME)_PRIVATE_FRAMEWORKS = Preferences
-$(BUNDLE_NAME)_CFLAGS = -fobjc-arc
+StatusHomeBarAdjusterPrefs_FILES = \
+	Preferences/RootListController.m
+
+StatusHomeBarAdjusterPrefs_FRAMEWORKS = UIKit
+
+StatusHomeBarAdjusterPrefs_PRIVATE_FRAMEWORKS = Preferences
+
+StatusHomeBarAdjusterPrefs_CFLAGS = -fobjc-arc
+
+StatusHomeBarAdjusterPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
-after-stage::
-	mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceBundles
-	cp -R Preferences/StatusHomeBarAdjusterPrefs.bundle \
-		$(THEOS_STAGING_DIR)/Library/PreferenceBundles/
 
-	mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
-	cp Preferences/StatusHomeBarAdjusterPrefs.bundle/StatusHomeBarAdjusterPrefs.plist \
+after-stage::
+	@mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
+
+	@cp \
+		Preferences/StatusHomeBarAdjusterPrefs.plist \
 		$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/
+
+	@cp \
+		Preferences/StatusHomeBarAdjusterPrefs.bundle/Root.plist \
+		$(THEOS_STAGING_DIR)/Library/PreferenceBundles/StatusHomeBarAdjusterPrefs.bundle/
+
+	@cp \
+		Preferences/StatusHomeBarAdjusterPrefs.bundle/Info.plist \
+		$(THEOS_STAGING_DIR)/Library/PreferenceBundles/StatusHomeBarAdjusterPrefs.bundle/
