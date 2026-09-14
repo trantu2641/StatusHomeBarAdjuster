@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <objc/runtime.h>
 
 static CGFloat SHAStatusOffset = 0.0;
 static CGFloat SHAHomeOffset = 0.0;
@@ -82,10 +83,7 @@ static BOOL SHA_IsPortrait(void)
 
     if (@available(iOS 13.0, *))
     {
-        NSSet *scenes =
-            application.connectedScenes;
-
-        for (UIScene *scene in scenes)
+        for (UIScene *scene in application.connectedScenes)
         {
             if (![scene isKindOfClass:[UIWindowScene class]])
                 continue;
@@ -107,7 +105,7 @@ static BOOL SHA_IsPortrait(void)
     return NO;
 }
 
-#pragma mark - Original Frame Storage
+#pragma mark - Original Frame
 
 static CGRect SHA_GetOriginalFrame(UIView *view)
 {
@@ -124,9 +122,7 @@ static CGRect SHA_GetOriginalFrame(UIView *view)
         [SHAOriginalFrames objectForKey:view];
 
     if (stored)
-    {
         return [stored CGRectValue];
-    }
 
     CGRect frame =
         view.frame;
@@ -138,15 +134,7 @@ static CGRect SHA_GetOriginalFrame(UIView *view)
     return frame;
 }
 
-static void SHA_ResetOriginalFrame(UIView *view)
-{
-    if (!view || !SHAOriginalFrames)
-        return;
-
-    [SHAOriginalFrames removeObjectForKey:view];
-}
-
-#pragma mark - Apply Visual Offset
+#pragma mark - Move Visual Only
 
 static void SHA_MoveViewVisual(
     UIView *view,
@@ -176,14 +164,8 @@ static BOOL SHA_IsHomeBarView(UIView *view)
     if (!view)
         return NO;
 
-    Class cls =
-        object_getClass(view);
-
-    if (!cls)
-        return NO;
-
     NSString *className =
-        NSStringFromClass(cls);
+        NSStringFromClass([view class]);
 
     if (!className)
         return NO;
@@ -270,7 +252,7 @@ static void SHA_ApplyStatusBar(UIView *view)
     );
 }
 
-#pragma mark - Settings Notification
+#pragma mark - Settings Changed
 
 static void SHA_SettingsChanged(
     CFNotificationCenterRef center,
@@ -281,20 +263,9 @@ static void SHA_SettingsChanged(
 )
 {
     SHA_LoadPreferences();
-
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
-            /*
-             * UIKit/SpringBoard sẽ tự layout lại.
-             * Các hook layoutSubviews sẽ áp dụng
-             * offset mới ngay sau đó.
-             */
-        }
-    );
 }
 
-#pragma mark - UIKit Home Bar
+#pragma mark - Home Bar Hooks
 
 %hook MTLumaDodgePillView
 
@@ -307,15 +278,13 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    if (SHAHomeOffset == 0.0)
-        return;
-
     SHA_ApplyHomeBar(
         (UIView *)self
     );
 }
 
 %end
+
 
 %hook MTStaticColorPillView
 
@@ -328,9 +297,6 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    if (SHAHomeOffset == 0.0)
-        return;
-
     SHA_ApplyHomeBar(
         (UIView *)self
     );
@@ -338,47 +304,7 @@ static void SHA_SettingsChanged(
 
 %end
 
-#pragma mark - UIKit Window
-
-%hook UIWindow
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (!SHA_IsPortrait())
-        return;
-
-    /*
-     * Tìm Home Bar visual trong UIWindow.
-     *
-     * Không thay đổi:
-     * safeAreaInsets
-     * gesture
-     * hitTest
-     */
-
-    NSArray *subviews =
-        [[self subviews] copy];
-
-    for (UIView *view in subviews)
-    {
-        NSString *name =
-            NSStringFromClass([view class]);
-
-        if ([name isEqualToString:@"MTLumaDodgePillView"] ||
-            [name isEqualToString:@"MTStaticColorPillView"])
-        {
-            SHA_ApplyHomeBar(view);
-        }
-    }
-}
-
-%end
-
-#pragma mark - UIKit Status Bar
+#pragma mark - Status Bar Hooks
 
 %hook _UIStatusBar
 
@@ -391,15 +317,13 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    if (SHAStatusOffset == 0.0)
-        return;
-
     SHA_ApplyStatusBar(
         (UIView *)self
     );
 }
 
 %end
+
 
 %hook UIStatusBar
 
@@ -412,9 +336,6 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    if (SHAStatusOffset == 0.0)
-        return;
-
     SHA_ApplyStatusBar(
         (UIView *)self
     );
@@ -422,7 +343,6 @@ static void SHA_SettingsChanged(
 
 %end
 
-#pragma mark - SpringBoard Status Bar
 
 %hook SBMainDisplaySceneLayoutStatusBarView
 
@@ -433,9 +353,6 @@ static void SHA_SettingsChanged(
     SHA_LoadPreferences();
 
     if (!SHA_IsPortrait())
-        return;
-
-    if (SHAStatusOffset == 0.0)
         return;
 
     SHA_ApplyStatusBar(
