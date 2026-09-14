@@ -1,10 +1,10 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-
-#define PREF_DOMAIN @"com.tutu.statushomebaradjuster"
+#import <CoreFoundation/CoreFoundation.h>
 
 static CGFloat SHAStatusOffset = 0.0;
 static CGFloat SHAHomeOffset = 0.0;
+
 static BOOL SHAAdjustingStatus = NO;
 static BOOL SHAAdjustingHome = NO;
 
@@ -19,18 +19,21 @@ static CGFloat SHA_Clamp(CGFloat value) {
 }
 
 static void SHA_LoadPreferences(void) {
-    CFPreferencesAppSynchronize(CFSTR(PREF_DOMAIN));
+
+    CFStringRef domain = CFSTR("com.tutu.statushomebaradjuster");
+
+    CFPreferencesAppSynchronize(domain);
 
     CFPropertyListRef statusValue =
         CFPreferencesCopyAppValue(
             CFSTR("StatusBarOffset"),
-            CFSTR(PREF_DOMAIN)
+            domain
         );
 
     CFPropertyListRef homeValue =
         CFPreferencesCopyAppValue(
             CFSTR("HomeBarOffset"),
-            CFSTR(PREF_DOMAIN)
+            domain
         );
 
     SHAStatusOffset = 0.0;
@@ -72,15 +75,20 @@ static void SHA_LoadPreferences(void) {
 }
 
 
-/*
- * Status Bar
- */
+/* =========================
+   STATUS BAR
+   ========================= */
 
 %hook UIStatusBar
 
 - (void)setFrame:(CGRect)frame {
 
-    if (SHAAdjustingStatus || SHAStatusOffset == 0.0) {
+    if (SHAAdjustingStatus) {
+        %orig(frame);
+        return;
+    }
+
+    if (SHAStatusOffset == 0.0) {
         %orig(frame);
         return;
     }
@@ -94,36 +102,23 @@ static void SHA_LoadPreferences(void) {
     SHAAdjustingStatus = NO;
 }
 
-- (void)layoutSubviews {
-
-    %orig;
-
-    if (SHAAdjustingStatus || SHAStatusOffset == 0.0)
-        return;
-
-    UIView *view = (UIView *)self;
-
-    CGRect frame = view.frame;
-
-    frame.origin.y += SHAStatusOffset;
-
-    SHAAdjustingStatus = YES;
-    view.frame = frame;
-    SHAAdjustingStatus = NO;
-}
-
 %end
 
 
-/*
- * Home Indicator
- */
+/* =========================
+   HOME INDICATOR
+   ========================= */
 
 %hook _UIHomeIndicatorView
 
 - (void)setFrame:(CGRect)frame {
 
-    if (SHAAdjustingHome || SHAHomeOffset == 0.0) {
+    if (SHAAdjustingHome) {
+        %orig(frame);
+        return;
+    }
+
+    if (SHAHomeOffset == 0.0) {
         %orig(frame);
         return;
     }
@@ -137,26 +132,12 @@ static void SHA_LoadPreferences(void) {
     SHAAdjustingHome = NO;
 }
 
-- (void)layoutSubviews {
-
-    %orig;
-
-    if (SHAAdjustingHome || SHAHomeOffset == 0.0)
-        return;
-
-    UIView *view = (UIView *)self;
-
-    CGRect frame = view.frame;
-
-    frame.origin.y += SHAHomeOffset;
-
-    SHAAdjustingHome = YES;
-    view.frame = frame;
-    SHAAdjustingHome = NO;
-}
-
 %end
 
+
+/* =========================
+   INITIALIZATION
+   ========================= */
 
 %ctor {
     @autoreleasepool {
