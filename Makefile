@@ -19,12 +19,17 @@ SHAStatusHomeBarAdjusterPrefs_FILES = \
 	Preferences/RootListController.m
 
 SHAStatusHomeBarAdjusterPrefs_CFLAGS = -fobjc-arc
-SHAStatusHomeBarAdjusterPrefs_FRAMEWORKS = UIKit Foundation
-SHAStatusHomeBarAdjusterPrefs_PRIVATE_FRAMEWORKS = Preferences
+
+SHAStatusHomeBarAdjusterPrefs_FRAMEWORKS = \
+	UIKit \
+	Foundation
+
+SHAStatusHomeBarAdjusterPrefs_PRIVATE_FRAMEWORKS = \
+	Preferences
 
 SHAStatusHomeBarAdjusterPrefs_RESOURCE_FILES = \
-	Preferences/SHAStatusHomeBarAdjusterPrefs/Root.plist \
-	Preferences/SHAStatusHomeBarAdjusterPrefs/SHAStatusHomeBarAdjusterPrefs.plist
+	Preferences/Root.plist \
+	Preferences/SHAStatusHomeBarAdjusterPrefs.plist
 
 SHAStatusHomeBarAdjusterPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
