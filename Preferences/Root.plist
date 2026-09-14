@@ -8,6 +8,8 @@
     <key>PreferenceSpecifiers</key>
     <array>
 
+        <!-- STATUS BAR -->
+
         <dict>
             <key>Type</key>
             <string>PSGroupCell</string>
@@ -20,24 +22,24 @@
             <key>Type</key>
             <string>PSEditTextCell</string>
 
+            <key>Title</key>
+            <string>Status Bar Y</string>
+
             <key>Key</key>
             <string>StatusBarOffset</string>
 
             <key>DefaultValue</key>
-            <real>0</real>
-
-            <key>Title</key>
-            <string>Status Bar Y</string>
+            <string>0</string>
 
             <key>KeyboardType</key>
             <string>NumbersAndPunctuation</string>
 
-            <key>IsNumeric</key>
-            <true/>
-
             <key>PostNotification</key>
-            <string>com.tutu.statushomebaradjuster/preferences.changed</string>
+            <string>com.congtu.statushomebaradjuster/preferences.changed</string>
         </dict>
+
+
+        <!-- HOME BAR -->
 
         <dict>
             <key>Type</key>
@@ -51,37 +53,37 @@
             <key>Type</key>
             <string>PSEditTextCell</string>
 
+            <key>Title</key>
+            <string>Home Bar Y</string>
+
             <key>Key</key>
             <string>HomeBarOffset</string>
 
             <key>DefaultValue</key>
-            <real>0</real>
-
-            <key>Title</key>
-            <string>Home Bar Y</string>
+            <string>0</string>
 
             <key>KeyboardType</key>
             <string>NumbersAndPunctuation</string>
 
-            <key>IsNumeric</key>
-            <true/>
-
             <key>PostNotification</key>
-            <string>com.tutu.statushomebaradjuster/preferences.changed</string>
+            <string>com.congtu.statushomebaradjuster/preferences.changed</string>
         </dict>
+
+
+        <!-- INFORMATION -->
 
         <dict>
             <key>Type</key>
             <string>PSGroupCell</string>
 
             <key>FooterText</key>
-            <string>Âm = lên. Dương = xuống. Phạm vi -120 đến +120 px. Khởi động lại SpringBoard để áp dụng.</string>
+            <string>Âm = lên. Dương = xuống. Phạm vi: -120 đến +120 px. Respring để áp dụng thay đổi.</string>
         </dict>
 
     </array>
 
     <key>Title</key>
-    <string>Status & Home Bar Adjuster</string>
+    <string>Status &amp; Home Bar Adjuster</string>
 
 </dict>
 </plist>
