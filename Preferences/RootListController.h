@@ -1,4 +1,4 @@
 #import <Preferences/PSListController.h>
 
-@interface RootListController : PSListController
+@interface SHAStatusHomeBarAdjusterController : PSListController
 @end
