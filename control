@@ -1,6 +1,6 @@
 Package: statushomebaradjuster.com.congtu
 Name: Status & Home Bar Adjuster
-Version: 1.0.6
+Version: 1.0.7
 Architecture: iphoneos-arm64e
 Description: Adjust Status Bar and Home Bar vertical position
 Maintainer: CongTu
