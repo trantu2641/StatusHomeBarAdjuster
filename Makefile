@@ -28,8 +28,8 @@ SHAStatusHomeBarAdjusterPrefs_PRIVATE_FRAMEWORKS = \
 	Preferences
 
 SHAStatusHomeBarAdjusterPrefs_RESOURCE_FILES = \
-	Preferences/Root.plist \
-	Preferences/SHAStatusHomeBarAdjusterPrefs.plist
+	Preferences/SHAStatusHomeBarAdjusterPrefs/Root.plist \
+	Preferences/SHAStatusHomeBarAdjusterPrefs/SHAStatusHomeBarAdjusterPrefs.plist
 
 SHAStatusHomeBarAdjusterPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
