@@ -43,14 +43,11 @@
         </dict>
 
         <dict>
-            <key>action</key>
-            <string>applySettings</string>
-
             <key>cell</key>
-            <string>PSButtonCell</string>
+            <string>PSGroupCell</string>
 
             <key>label</key>
-            <string>Apply</string>
+            <string>Giá trị từ -120 đến +120 px. Âm = lên, dương = xuống.</string>
         </dict>
 
     </array>
