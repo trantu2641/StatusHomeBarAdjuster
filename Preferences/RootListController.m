@@ -22,26 +22,18 @@
         [[NSUserDefaults alloc]
             initWithSuiteName:@"com.congtu.statushomebaradjuster"];
 
-    NSInteger status =
-        [defaults integerForKey:@"StatusBarOffset"];
-
-    NSInteger home =
-        [defaults integerForKey:@"HomeBarOffset"];
+    NSInteger status = [defaults integerForKey:@"StatusBarOffset"];
+    NSInteger home = [defaults integerForKey:@"HomeBarOffset"];
 
     status = MAX(-120, MIN(120, status));
     home = MAX(-120, MIN(120, home));
 
-    [defaults setInteger:status
-                  forKey:@"StatusBarOffset"];
-
-    [defaults setInteger:home
-                  forKey:@"HomeBarOffset"];
+    [defaults setInteger:status forKey:@"StatusBarOffset"];
+    [defaults setInteger:home forKey:@"HomeBarOffset"];
 
     [defaults synchronize];
 
-    notify_post(
-        "com.congtu.statushomebaradjuster.settingsChanged"
-    );
+    notify_post("com.congtu.statushomebaradjuster.settingsChanged");
 }
 
 @end
