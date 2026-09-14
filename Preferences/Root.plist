@@ -5,6 +5,7 @@
 
 <plist version="1.0">
 <dict>
+
     <key>title</key>
     <string>Status &amp; Home Bar Adjuster</string>
 
@@ -65,5 +66,6 @@
         </dict>
 
     </array>
+
 </dict>
 </plist>
