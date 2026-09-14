@@ -1,4 +1,4 @@
-name: Build RootHide Tweak
+name: Build StatusHomeBarAdjuster
 
 on:
   workflow_dispatch:
@@ -22,13 +22,9 @@ jobs:
         run: |
           git clone --recursive https://github.com/theos/theos.git "$GITHUB_WORKSPACE/theos"
 
-      - name: Download Theos SDKs
+      - name: Install SDK
         run: |
           git clone --depth 1 https://github.com/theos/sdks.git "$GITHUB_WORKSPACE/sdks"
-
-      - name: Install iPhoneOS SDK
-        run: |
-          set -e
 
           SDK=$(find "$GITHUB_WORKSPACE/sdks" \
             -maxdepth 1 \
@@ -38,42 +34,27 @@ jobs:
             | tail -n 1)
 
           if [ -z "$SDK" ]; then
-            echo "Không tìm thấy iPhoneOS SDK"
-            echo "Các SDK hiện có:"
-            find "$GITHUB_WORKSPACE/sdks" -maxdepth 1 -type d -name "*.sdk"
+            echo "No iPhoneOS SDK found"
             exit 1
           fi
 
           echo "Using SDK: $SDK"
-
           cp -R "$SDK" "$GITHUB_WORKSPACE/theos/sdks/"
 
-      - name: Verify Theos
-        run: |
-          echo "THEOS = $GITHUB_WORKSPACE/theos"
-          find "$GITHUB_WORKSPACE/theos/sdks" \
-            -maxdepth 1 \
-            -type d \
-            -name "iPhoneOS*.sdk" \
-            -print
-
-      - name: Build RootHide package
+      - name: Build
         env:
           THEOS: ${{ github.workspace }}/theos
         run: |
           make clean
-          make package \
-            FINALPACKAGE=1 \
-            THEOS_PACKAGE_SCHEME=roothide
+          make package FINALPACKAGE=1
 
-      - name: Show generated package
+      - name: List packages
         run: |
-          echo "=== DEB FILES ==="
           find packages -type f -name "*.deb" -print
 
       - name: Upload DEB
         uses: actions/upload-artifact@v4
         with:
-          name: StatusHomeBarAdjuster-RootHide
+          name: StatusHomeBarAdjuster
           path: packages/*.deb
           if-no-files-found: error
