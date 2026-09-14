@@ -7,8 +7,7 @@
 
 - (NSArray *)specifiers
 {
-    if (!_specifiers)
-    {
+    if (!_specifiers) {
         _specifiers =
             [self loadSpecifiersFromPlistName:@"Root"
                                        target:self];
@@ -24,13 +23,12 @@
             initWithSuiteName:@"com.congtu.statushomebaradjuster"];
 
     NSInteger status =
-        [defaults integerForKey:@"StatusBarOffset"];
+        MAX(-120, MIN(120,
+        [defaults integerForKey:@"StatusBarOffset"]));
 
     NSInteger home =
-        [defaults integerForKey:@"HomeBarOffset"];
-
-    status = MAX(-120, MIN(120, status));
-    home = MAX(-120, MIN(120, home));
+        MAX(-120, MIN(120,
+        [defaults integerForKey:@"HomeBarOffset"]));
 
     [defaults setInteger:status
                   forKey:@"StatusBarOffset"];
