@@ -1,6 +1,5 @@
 ARCHS = arm64
-
-TARGET = iphone:clang:latest:15.0
+TARGET = iphone:clang:16.5:15.0
 
 include $(THEOS)/makefiles/common.mk
 
@@ -10,7 +9,8 @@ StatusHomeBarAdjuster_FILES = Tweak.xm
 StatusHomeBarAdjuster_CFLAGS = -fobjc-arc
 StatusHomeBarAdjuster_FRAMEWORKS = UIKit Foundation
 
+StatusHomeBarAdjuster_INSTALL_TARGET_PROCESSES = SpringBoard
+
 include $(THEOS_MAKE_PATH)/tweak.mk
 
-after-install::
-	install.exec "killall -9 SpringBoard"
+PACKAGE_BUILDNAME = roothide
