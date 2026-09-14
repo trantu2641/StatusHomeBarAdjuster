@@ -1,10 +1,8 @@
-name: Build StatusHomeBarAdjuster
+name: Build RootHide DEB
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
+
 
 jobs:
   build:
@@ -16,45 +14,90 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install ldid
+          brew install make ldid
 
-      - name: Install Theos
+      - name: Install RootHide Theos
         run: |
-          git clone --recursive https://github.com/theos/theos.git "$GITHUB_WORKSPACE/theos"
+          set -e
 
-      - name: Install SDK
+          export THEOS="$GITHUB_WORKSPACE/theos"
+
+          git clone --recursive \
+            https://github.com/roothide/theos.git \
+            "$THEOS"
+
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+
+      - name: Install iOS SDK
         run: |
-          git clone --depth 1 https://github.com/theos/sdks.git "$GITHUB_WORKSPACE/sdks"
+          set -e
 
-          SDK=$(find "$GITHUB_WORKSPACE/sdks" \
-            -maxdepth 1 \
-            -type d \
-            -name "iPhoneOS*.sdk" \
-            | sort -V \
-            | tail -n 1)
+          mkdir -p "$THEOS/sdks"
 
-          if [ -z "$SDK" ]; then
-            echo "No iPhoneOS SDK found"
+          curl -L \
+            https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
+            -o "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz"
+
+          tar -xJf \
+            "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" \
+            -C "$THEOS/sdks"
+
+          echo "Installed SDK:"
+          ls -la "$THEOS/sdks"
+
+      - name: Verify RootHide Theos
+        run: |
+          echo "THEOS = $THEOS"
+
+          test -d "$THEOS"
+
+          test -d "$THEOS/lib/iphone/roothide"
+
+          echo "RootHide support detected."
+
+          ls -la "$THEOS/lib/iphone/roothide"
+
+      - name: Build RootHide DEB
+        run: |
+          set -e
+
+          make clean
+
+          make package \
+            FINALPACKAGE=1 \
+            THEOS_PACKAGE_SCHEME=roothide
+
+      - name: Verify DEB
+        run: |
+          set -e
+
+          echo "=== Packages ==="
+
+          find "$GITHUB_WORKSPACE/packages" \
+            -type f \
+            -name "*.deb" \
+            -print
+
+          DEB=$(find "$GITHUB_WORKSPACE/packages" \
+            -type f \
+            -name "*.deb" \
+            | head -n 1)
+
+          if [ -z "$DEB" ]; then
+            echo "ERROR: No DEB generated."
             exit 1
           fi
 
-          echo "Using SDK: $SDK"
-          cp -R "$SDK" "$GITHUB_WORKSPACE/theos/sdks/"
+          echo "Generated:"
+          echo "$DEB"
 
-      - name: Build
-        env:
-          THEOS: ${{ github.workspace }}/theos
-        run: |
-          make clean
-          make package FINALPACKAGE=1
+          echo "=== Debian information ==="
 
-      - name: List packages
-        run: |
-          find packages -type f -name "*.deb" -print
+          dpkg-deb -I "$DEB" || true
 
-      - name: Upload DEB
+      - name: Upload RootHide DEB
         uses: actions/upload-artifact@v4
         with:
-          name: StatusHomeBarAdjuster
+          name: StatusHomeBarAdjuster-RootHide-DEB
           path: packages/*.deb
           if-no-files-found: error
