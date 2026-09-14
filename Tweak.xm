@@ -2,7 +2,6 @@
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <objc/runtime.h>
-#import <objc/message.h>
 
 static CGFloat SHAStatusOffset = 0.0;
 static CGFloat SHAHomeOffset = 0.0;
@@ -98,33 +97,9 @@ static void SHA_ResetAdjustedViews(void)
     [SHAAdjustedViews removeAllObjects];
 }
 
-#pragma mark - Class Name Helpers
+#pragma mark - Apply
 
-static BOOL SHA_ClassNameContains(
-    UIView *view,
-    NSString *text
-)
-{
-    if (!view)
-        return NO;
-
-    NSString *className =
-        NSStringFromClass([view class]);
-
-    if (!className)
-        return NO;
-
-    return
-        [className rangeOfString:text
-                          options:NSCaseInsensitiveSearch].location
-        != NSNotFound;
-}
-
-#pragma mark - Apply View
-
-static void SHA_ApplyStatusToView(
-    UIView *view
-)
+static void SHA_ApplyStatusToView(UIView *view)
 {
     if (!view)
         return;
@@ -144,9 +119,7 @@ static void SHA_ApplyStatusToView(
     [SHAAdjustedViews addObject:view];
 }
 
-static void SHA_ApplyHomeToView(
-    UIView *view
-)
+static void SHA_ApplyHomeToView(UIView *view)
 {
     if (!view)
         return;
@@ -166,11 +139,9 @@ static void SHA_ApplyHomeToView(
     [SHAAdjustedViews addObject:view];
 }
 
-#pragma mark - Recursive View Search
+#pragma mark - Recursive Search
 
-static void SHA_SearchViewTree(
-    UIView *view
-)
+static void SHA_SearchViewTree(UIView *view)
 {
     if (!view)
         return;
@@ -178,40 +149,29 @@ static void SHA_SearchViewTree(
     NSString *className =
         NSStringFromClass([view class]);
 
+    if (!className)
+        return;
+
     /*
      * STATUS BAR
      */
 
-    if (
-        [className
-            isEqualToString:@"SBMainDisplaySceneLayoutStatusBarView"] ||
+    BOOL isStatusBar =
+        [className isEqualToString:
+            @"SBMainDisplaySceneLayoutStatusBarView"] ||
 
-        [className
-            isEqualToString:@"_UIStatusBar"] ||
+        [className isEqualToString:
+            @"_UIStatusBar"] ||
 
-        [className
-            isEqualToString:@"UIStatusBar"] ||
+        [className isEqualToString:
+            @"UIStatusBar"];
 
-        [className
-            rangeOfString:@"StatusBar"
-            options:NSCaseInsensitiveSearch].location
-            != NSNotFound
-    )
+    if (isStatusBar)
     {
-        /*
-         * Không động vào các view phụ kiểu
-         * background / separator.
-         *
-         * Chỉ ưu tiên những view có kích thước
-         * giống một status bar.
-         */
-
         CGRect frame = view.frame;
 
-        if (
-            frame.size.height >= 15.0 &&
-            frame.size.height <= 80.0
-        )
+        if (frame.size.height >= 15.0 &&
+            frame.size.height <= 80.0)
         {
             SHA_ApplyStatusToView(view);
         }
@@ -221,34 +181,32 @@ static void SHA_SearchViewTree(
      * HOME INDICATOR
      */
 
-    if (
-        [className
-            rangeOfString:@"HomeIndicator"
+    BOOL isHomeIndicator =
+        [className rangeOfString:
+            @"HomeIndicator"
             options:NSCaseInsensitiveSearch].location
-            != NSNotFound ||
+            != NSNotFound;
 
-        [className
-            rangeOfString:@"LumaDodgePill"
+    BOOL isLumaPill =
+        [className rangeOfString:
+            @"LumaDodgePill"
             options:NSCaseInsensitiveSearch].location
-            != NSNotFound ||
+            != NSNotFound;
 
-        [className
-            rangeOfString:@"HomeBar"
+    BOOL isHomeBar =
+        [className rangeOfString:
+            @"HomeBar"
             options:NSCaseInsensitiveSearch].location
-            != NSNotFound
-    )
+            != NSNotFound;
+
+    if (isHomeIndicator ||
+        isLumaPill ||
+        isHomeBar)
     {
         CGRect frame = view.frame;
 
-        /*
-         * Home indicator thường rất thấp,
-         * chiều cao nhỏ.
-         */
-
-        if (
-            frame.size.height >= 2.0 &&
-            frame.size.height <= 80.0
-        )
+        if (frame.size.height >= 2.0 &&
+            frame.size.height <= 80.0)
         {
             SHA_ApplyHomeToView(view);
         }
@@ -264,7 +222,7 @@ static void SHA_SearchViewTree(
     }
 }
 
-#pragma mark - Find All Windows
+#pragma mark - Apply To Scene Windows
 
 static void SHA_ApplyToAllWindows(void)
 {
@@ -286,16 +244,20 @@ static void SHA_ApplyToAllWindows(void)
             }
 
             /*
-             * iOS 13+
+             * iOS 13+:
+             * Chỉ sử dụng UIWindowScene.windows.
              */
 
             if (@available(iOS 13.0, *))
             {
-                for (UIScene *scene
-                     in application.connectedScenes)
+                NSSet<UIScene *> *scenes =
+                    application.connectedScenes;
+
+                for (UIScene *scene in scenes)
                 {
                     if (![scene
-                            isKindOfClass:[UIWindowScene class]])
+                            isKindOfClass:
+                                [UIWindowScene class]])
                     {
                         continue;
                     }
@@ -303,29 +265,23 @@ static void SHA_ApplyToAllWindows(void)
                     UIWindowScene *windowScene =
                         (UIWindowScene *)scene;
 
-                    for (UIWindow *window
-                         in windowScene.windows)
+                    NSArray<UIWindow *> *windows =
+                        windowScene.windows;
+
+                    for (UIWindow *window in windows)
                     {
+                        if (!window)
+                            continue;
+
                         SHA_SearchViewTree(window);
                     }
                 }
-            }
-
-            /*
-             * Fallback cho những window không nằm
-             * trong connectedScenes.
-             */
-
-            for (UIWindow *window
-                 in application.windows)
-            {
-                SHA_SearchViewTree(window);
             }
         }
     );
 }
 
-#pragma mark - Settings Notification
+#pragma mark - Notification
 
 static void SHA_PreferencesChanged(
     CFNotificationCenterRef center,
@@ -338,9 +294,7 @@ static void SHA_PreferencesChanged(
     SHA_LoadPreferences();
 
     /*
-     * Quan trọng:
-     * bản cũ chỉ reload giá trị nhưng không
-     * áp dụng lại vị trí.
+     * Apply ngay sau khi bấm Apply.
      */
 
     SHA_ApplyToAllWindows();
@@ -353,6 +307,8 @@ static void SHA_PreferencesChanged(
 - (void)didMoveToWindow
 {
     %orig;
+
+    SHA_LoadPreferences();
 
     if (SHAStatusOffset != 0.0)
     {
@@ -382,6 +338,8 @@ static void SHA_PreferencesChanged(
 {
     %orig;
 
+    SHA_LoadPreferences();
+
     if (SHAStatusOffset != 0.0)
     {
         SHA_ApplyStatusToView((UIView *)self);
@@ -409,6 +367,8 @@ static void SHA_PreferencesChanged(
 - (void)didMoveToWindow
 {
     %orig;
+
+    SHA_LoadPreferences();
 
     if (SHAStatusOffset != 0.0)
     {
@@ -438,6 +398,8 @@ static void SHA_PreferencesChanged(
 {
     %orig;
 
+    SHA_LoadPreferences();
+
     if (SHAHomeOffset != 0.0)
     {
         SHA_ApplyHomeToView((UIView *)self);
@@ -465,6 +427,8 @@ static void SHA_PreferencesChanged(
 - (void)didMoveToWindow
 {
     %orig;
+
+    SHA_LoadPreferences();
 
     if (SHAHomeOffset != 0.0)
     {
@@ -509,7 +473,7 @@ static void SHA_PreferencesChanged(
         );
 
         /*
-         * Chờ SpringBoard tạo xong window/view hierarchy.
+         * SpringBoard cần thời gian dựng UI.
          */
 
         dispatch_after(
@@ -523,10 +487,6 @@ static void SHA_PreferencesChanged(
                 SHA_ApplyToAllWindows();
             }
         );
-
-        /*
-         * Một lần nữa sau khi SpringBoard ổn định.
-         */
 
         dispatch_after(
             dispatch_time(
