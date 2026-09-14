@@ -1,10 +1,12 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
+#import <QuartzCore/QuartzCore.h>
 
-static CGFloat SHAStatusOffset = 0.0;
-static CGFloat SHAHomeOffset = 0.0;
+static CGFloat SHAStatusDelta = 0.0;
+static CGFloat SHAHomeDelta = 0.0;
 
+static NSMapTable *SHAOriginalTransforms;
 static NSMapTable *SHAOriginalFrames;
 
 #pragma mark - Preferences
@@ -28,8 +30,8 @@ static void SHA_LoadPreferences(void)
             domain
         );
 
-    SHAStatusOffset = 0.0;
-    SHAHomeOffset = 0.0;
+    SHAStatusDelta = 0.0;
+    SHAHomeDelta = 0.0;
 
     if (statusValue &&
         CFGetTypeID(statusValue) == CFNumberGetTypeID())
@@ -44,7 +46,7 @@ static void SHA_LoadPreferences(void)
 
         value = MAX(-120.0, MIN(120.0, value));
 
-        SHAStatusOffset = (CGFloat)value;
+        SHAStatusDelta = (CGFloat)value;
     }
 
     if (homeValue &&
@@ -60,7 +62,7 @@ static void SHA_LoadPreferences(void)
 
         value = MAX(-120.0, MIN(120.0, value));
 
-        SHAHomeOffset = (CGFloat)value;
+        SHAHomeDelta = (CGFloat)value;
     }
 
     if (statusValue)
@@ -70,7 +72,7 @@ static void SHA_LoadPreferences(void)
         CFRelease(homeValue);
 }
 
-#pragma mark - Portrait
+#pragma mark - Orientation
 
 static BOOL SHA_IsPortrait(void)
 {
@@ -104,9 +106,45 @@ static BOOL SHA_IsPortrait(void)
     return NO;
 }
 
-#pragma mark - Original Frame
+#pragma mark - Original Transform
 
-static CGRect SHA_GetOriginalFrame(UIView *view)
+static CGAffineTransform SHA_GetOriginalTransform(
+    UIView *view
+)
+{
+    if (!view)
+        return CGAffineTransformIdentity;
+
+    if (!SHAOriginalTransforms)
+    {
+        SHAOriginalTransforms =
+            [NSMapTable weakToStrongObjectsMapTable];
+    }
+
+    NSValue *value =
+        [SHAOriginalTransforms objectForKey:view];
+
+    if (value)
+    {
+        return [value CGAffineTransformValue];
+    }
+
+    CGAffineTransform transform =
+        view.transform;
+
+    [SHAOriginalTransforms
+        setObject:
+            [NSValue valueWithCGAffineTransform:transform]
+        forKey:view];
+
+    return transform;
+}
+
+#pragma mark - Original Bounds
+
+static CGRect SHA_GetOriginalBounds(
+    UIView *view
+)
 {
     if (!view)
         return CGRectZero;
@@ -117,46 +155,245 @@ static CGRect SHA_GetOriginalFrame(UIView *view)
             [NSMapTable weakToStrongObjectsMapTable];
     }
 
-    NSValue *stored =
+    NSValue *value =
         [SHAOriginalFrames objectForKey:view];
 
-    if (stored)
-        return [stored CGRectValue];
+    if (value)
+    {
+        return [value CGRectValue];
+    }
 
-    CGRect frame =
-        view.frame;
+    CGRect bounds =
+        view.bounds;
 
     [SHAOriginalFrames
-        setObject:[NSValue valueWithCGRect:frame]
+        setObject:
+            [NSValue valueWithCGRect:bounds]
         forKey:view];
 
-    return frame;
+    return bounds;
 }
 
-#pragma mark - Move Visual
+#pragma mark - Vertical Scale
 
-static void SHA_MoveView(
-    UIView *view,
-    CGFloat offset
+static CGFloat SHA_ScaleForHeight(
+    CGFloat height,
+    CGFloat delta
+)
+{
+    if (height <= 0.0)
+        return 1.0;
+
+    CGFloat newHeight =
+        height + delta;
+
+    /*
+     * Không cho chiều cao <= 1 px.
+     */
+    if (newHeight < 1.0)
+        newHeight = 1.0;
+
+    return newHeight / height;
+}
+
+#pragma mark - Status Bar Scale
+
+static void SHA_ApplyStatusScale(
+    UIView *view
 )
 {
     if (!view)
         return;
 
-    CGRect original =
-        SHA_GetOriginalFrame(view);
+    if (!SHA_IsPortrait())
+        return;
 
-    CGRect frame =
-        original;
+    CGRect bounds =
+        SHA_GetOriginalBounds(view);
 
-    frame.origin.y =
-        original.origin.y + offset;
+    CGFloat height =
+        bounds.size.height;
 
-    view.frame =
-        frame;
+    if (height <= 0.0)
+        return;
+
+    CGFloat scaleY =
+        SHA_ScaleForHeight(
+            height,
+            SHAStatusDelta
+        );
+
+    CGAffineTransform original =
+        SHA_GetOriginalTransform(view);
+
+    /*
+     * Chỉ scale theo chiều dọc.
+     *
+     * Không thay đổi:
+     * - X
+     * - Y
+     * - safeArea
+     * - gesture
+     */
+
+    CGAffineTransform transform =
+        CGAffineTransformScale(
+            original,
+            1.0,
+            scaleY
+        );
+
+    view.transform =
+        transform;
 }
 
-#pragma mark - Home Bar
+#pragma mark - Find Status Bar
+
+static BOOL SHA_IsStatusClass(
+    UIView *view
+)
+{
+    if (!view)
+        return NO;
+
+    NSString *name =
+        NSStringFromClass([view class]);
+
+    if ([name isEqualToString:@"_UIStatusBar"])
+        return YES;
+
+    if ([name isEqualToString:@"UIStatusBar"])
+        return YES;
+
+    if ([name isEqualToString:@"UIStatusBar_Modern"])
+        return YES;
+
+    if ([name isEqualToString:
+            @"SBMainDisplaySceneLayoutStatusBarView"])
+        return YES;
+
+    return NO;
+}
+
+static void SHA_SearchStatusBar(
+    UIView *root
+)
+{
+    if (!root)
+        return;
+
+    if (SHA_IsStatusClass(root))
+    {
+        SHA_ApplyStatusScale(root);
+        return;
+    }
+
+    NSArray *children =
+        [[root subviews] copy];
+
+    for (UIView *child in children)
+    {
+        SHA_SearchStatusBar(child);
+    }
+}
+
+#pragma mark - Home Bar Detection
+
+static BOOL SHA_IsHomePill(
+    UIView *view
+)
+{
+    if (!view)
+        return NO;
+
+    NSString *name =
+        NSStringFromClass([view class]);
+
+    if ([name isEqualToString:
+            @"MTLumaDodgePillView"])
+        return YES;
+
+    if ([name isEqualToString:
+            @"MTStaticColorPillView"])
+        return YES;
+
+    return NO;
+}
+
+#pragma mark - Home Visual Scale
+
+static void SHA_ApplyHomeVisualScale(
+    UIView *view
+)
+{
+    if (!view)
+        return;
+
+    if (!SHA_IsPortrait())
+        return;
+
+    CGRect bounds =
+        SHA_GetOriginalBounds(view);
+
+    CGFloat height =
+        bounds.size.height;
+
+    if (height <= 0.0)
+        return;
+
+    /*
+     * Home indicator visual thường rất thấp.
+     *
+     * Vì vậy delta được chuyển thành
+     * một hệ số an toàn thay vì trực tiếp
+     * cộng hàng chục pixel vào pill.
+     */
+
+    CGFloat visualDelta =
+        SHAHomeDelta * 0.10;
+
+    CGFloat scaleY =
+        SHA_ScaleForHeight(
+            height,
+            visualDelta
+        );
+
+    CGAffineTransform original =
+        SHA_GetOriginalTransform(view);
+
+    view.transform =
+        CGAffineTransformScale(
+            original,
+            1.0,
+            scaleY
+        );
+}
+
+#pragma mark - Home Bar Recursive Visual
+
+static void SHA_SearchHomeVisual(
+    UIView *root
+)
+{
+    if (!root)
+        return;
+
+    if (SHA_IsHomePill(root))
+    {
+        SHA_ApplyHomeVisualScale(root);
+        return;
+    }
+
+    NSArray *children =
+        [[root subviews] copy];
+
+    for (UIView *child in children)
+    {
+        SHA_SearchHomeVisual(child);
+    }
+}
+
+#pragma mark - UIKit Home Indicator
 
 %hook MTLumaDodgePillView
 
@@ -169,9 +406,8 @@ static void SHA_MoveView(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_MoveView(
-        (UIView *)self,
-        SHAHomeOffset
+    SHA_ApplyHomeVisualScale(
+        (UIView *)self
     );
 }
 
@@ -189,9 +425,36 @@ static void SHA_MoveView(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_MoveView(
-        (UIView *)self,
-        SHAHomeOffset
+    SHA_ApplyHomeVisualScale(
+        (UIView *)self
+    );
+}
+
+%end
+
+#pragma mark - Home Grabber Container
+
+%hook SBHomeGrabberView
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    if (!SHA_IsPortrait())
+        return;
+
+    /*
+     * Không transform SBHomeGrabberView itself.
+     *
+     * Nó có thể liên quan tới gesture.
+     *
+     * Chỉ tìm các visual descendants.
+     */
+
+    SHA_SearchHomeVisual(
+        (UIView *)self
     );
 }
 
@@ -210,9 +473,8 @@ static void SHA_MoveView(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_MoveView(
-        (UIView *)self,
-        SHAStatusOffset
+    SHA_ApplyStatusScale(
+        (UIView *)self
     );
 }
 
@@ -230,9 +492,8 @@ static void SHA_MoveView(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_MoveView(
-        (UIView *)self,
-        SHAStatusOffset
+    SHA_ApplyStatusScale(
+        (UIView *)self
     );
 }
 
@@ -250,9 +511,41 @@ static void SHA_MoveView(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_MoveView(
-        (UIView *)self,
-        SHAStatusOffset
+    SHA_ApplyStatusScale(
+        (UIView *)self
+    );
+}
+
+%end
+
+#pragma mark - Window Search
+
+%hook UIWindow
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    if (!SHA_IsPortrait())
+        return;
+
+    /*
+     * Chỉ tìm Status Bar.
+     */
+    SHA_SearchStatusBar(
+        (UIView *)self
+    );
+
+    /*
+     * Home Bar visual.
+     *
+     * Không chỉnh UIWindow.
+     * Không chỉnh safeArea.
+     */
+    SHA_SearchHomeVisual(
+        (UIView *)self
     );
 }
 
@@ -269,6 +562,17 @@ static void SHA_SettingsChanged(
 )
 {
     SHA_LoadPreferences();
+
+    dispatch_async(
+        dispatch_get_main_queue(),
+        ^{
+            /*
+             * Các view sẽ tự layout lại.
+             * Hook layoutSubviews sẽ áp dụng
+             * scale mới.
+             */
+        }
+    );
 }
 
 #pragma mark - Constructor
@@ -277,6 +581,9 @@ static void SHA_SettingsChanged(
 {
     @autoreleasepool
     {
+        SHAOriginalTransforms =
+            [NSMapTable weakToStrongObjectsMapTable];
+
         SHAOriginalFrames =
             [NSMapTable weakToStrongObjectsMapTable];
 
