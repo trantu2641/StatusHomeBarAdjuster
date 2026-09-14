@@ -90,7 +90,7 @@ static void SHA_PreferencesChanged(
     SHA_LoadPreferences();
 }
 
-#pragma mark - Status Bar
+#pragma mark - UIStatusBar
 
 %hook UIStatusBar
 
@@ -170,7 +170,7 @@ static void SHA_PreferencesChanged(
 
 %end
 
-#pragma mark - Runtime Status Bar Fallback
+#pragma mark - Runtime Status Bar Search
 
 static void SHA_AdjustStatusBarViews(void)
 {
@@ -178,32 +178,33 @@ static void SHA_AdjustStatusBarViews(void)
         return;
 
     Class statusClass =
-        NSClassFromString(@"SBMainDisplaySceneLayoutStatusBarView");
+        NSClassFromString(
+            @"SBMainDisplaySceneLayoutStatusBarView"
+        );
 
     if (!statusClass)
         return;
 
-    NSArray *windows = nil;
+    UIApplication *application =
+        [UIApplication sharedApplication];
 
-    if (@available(iOS 13.0, *))
+    if (!application)
+        return;
+
+    NSMutableArray *windows =
+        [NSMutableArray array];
+
+    for (UIScene *scene in
+         application.connectedScenes)
     {
-        NSMutableArray *allWindows =
-            [NSMutableArray array];
+        if (![scene isKindOfClass:[UIWindowScene class]])
+            continue;
 
-        for (UIScene *scene in
-             [UIApplication sharedApplication].connectedScenes)
-        {
-            if (![scene isKindOfClass:[UIWindowScene class]])
-                continue;
+        UIWindowScene *windowScene =
+            (UIWindowScene *)scene;
 
-            UIWindowScene *windowScene =
-                (UIWindowScene *)scene;
-
-            [allWindows addObjectsFromArray:
-                windowScene.windows];
-        }
-
-        windows = [allWindows copy];
+        [windows addObjectsFromArray:
+            windowScene.windows];
     }
 
     for (UIWindow *window in windows)
@@ -222,18 +223,24 @@ static void SHA_AdjustStatusBarViews(void)
     }
 }
 
-#pragma mark - Runtime Home Indicator Fallback
+#pragma mark - Runtime Home Indicator Search
 
 static void SHA_AdjustHomeIndicatorViews(void)
 {
     if (SHAHomeOffset == 0.0)
         return;
 
-    if (!@available(iOS 13.0, *))
+    UIApplication *application =
+        [UIApplication sharedApplication];
+
+    if (!application)
         return;
 
+    NSMutableArray *windows =
+        [NSMutableArray array];
+
     for (UIScene *scene in
-         [UIApplication sharedApplication].connectedScenes)
+         application.connectedScenes)
     {
         if (![scene isKindOfClass:[UIWindowScene class]])
             continue;
@@ -241,26 +248,27 @@ static void SHA_AdjustHomeIndicatorViews(void)
         UIWindowScene *windowScene =
             (UIWindowScene *)scene;
 
-        for (UIWindow *window in windowScene.windows)
+        [windows addObjectsFromArray:
+            windowScene.windows];
+    }
+
+    for (UIWindow *window in windows)
+    {
+        for (UIView *view in window.subviews)
         {
-            NSArray *subviews =
-                [window.subviews copy];
+            NSString *className =
+                NSStringFromClass([view class]);
 
-            for (UIView *view in subviews)
+            if ([className
+                    rangeOfString:@"HomeIndicator"
+                    options:NSCaseInsensitiveSearch].location
+                != NSNotFound)
             {
-                NSString *className =
-                    NSStringFromClass([view class]);
-
-                if ([className rangeOfString:@"HomeIndicator"
-                                      options:NSCaseInsensitiveSearch].location
-                    != NSNotFound)
-                {
-                    view.transform =
-                        CGAffineTransformMakeTranslation(
-                            0.0,
-                            SHAHomeOffset
-                        );
-                }
+                view.transform =
+                    CGAffineTransformMakeTranslation(
+                        0.0,
+                        SHAHomeOffset
+                    );
             }
         }
     }
