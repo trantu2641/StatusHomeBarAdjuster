@@ -1,26 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
-
 <!DOCTYPE plist PUBLIC
 "-//Apple//DTD PLIST 1.0//EN"
 "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 
 <plist version="1.0">
-
 <dict>
-
     <key>title</key>
     <string>Status &amp; Home Bar Adjuster</string>
 
-
     <key>items</key>
-
     <array>
 
-
-        <!-- STATUS BAR -->
-
         <dict>
-
             <key>cell</key>
             <string>PSEditTextCell</string>
 
@@ -35,14 +26,9 @@
 
             <key>label</key>
             <string>Status Bar Y</string>
-
         </dict>
 
-
-        <!-- HOME BAR -->
-
         <dict>
-
             <key>cell</key>
             <string>PSEditTextCell</string>
 
@@ -57,27 +43,17 @@
 
             <key>label</key>
             <string>Home Bar Y</string>
-
         </dict>
 
-
-        <!-- INFO -->
-
         <dict>
-
             <key>cell</key>
             <string>PSGroupCell</string>
 
             <key>label</key>
             <string>Âm = lên. Dương = xuống. Phạm vi -120 đến +120 px.</string>
-
         </dict>
 
-
-        <!-- APPLY -->
-
         <dict>
-
             <key>cell</key>
             <string>PSButtonCell</string>
 
@@ -86,12 +62,8 @@
 
             <key>action</key>
             <string>applySettings</string>
-
         </dict>
 
-
     </array>
-
 </dict>
-
 </plist>
