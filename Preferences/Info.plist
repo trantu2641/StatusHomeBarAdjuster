@@ -4,11 +4,12 @@
 
 <plist version="1.0">
 <dict>
+
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
 
     <key>CFBundleDisplayName</key>
-    <string>StatusHomeBarAdjuster</string>
+    <string>Status &amp; Home Bar Adjuster</string>
 
     <key>CFBundleExecutable</key>
     <string>StatusHomeBarAdjusterPrefs</string>
@@ -33,5 +34,6 @@
 
     <key>NSPrincipalClass</key>
     <string>RootListController</string>
+
 </dict>
 </plist>
