@@ -16,7 +16,7 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 BUNDLE_NAME = SHAStatusHomeBarAdjusterPrefs
 
 SHAStatusHomeBarAdjusterPrefs_FILES = \
-	Preferences/SHAStatusHomeBarAdjusterController.m
+	Preferences/RootListController.m
 
 SHAStatusHomeBarAdjusterPrefs_CFLAGS = -fobjc-arc
 SHAStatusHomeBarAdjusterPrefs_FRAMEWORKS = UIKit Foundation
@@ -33,6 +33,7 @@ include $(THEOS_MAKE_PATH)/bundle.mk
 
 after-stage::
 	@mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
+
 	@cp Preferences/SHAStatusHomeBarAdjusterPrefs.plist \
 		$(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/
 
