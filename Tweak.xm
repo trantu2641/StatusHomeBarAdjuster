@@ -71,7 +71,7 @@ static void SHA_LoadPreferences(void)
 
 #pragma mark - Status Bar
 
-static void SHA_MoveStatusBar(UIView *view)
+static void SHA_ApplyStatusBar(UIView *view)
 {
     if (!view)
         return;
@@ -88,7 +88,7 @@ static void SHA_MoveStatusBar(UIView *view)
 
 #pragma mark - Home Bar
 
-static void SHA_MoveHomeBar(UIView *view)
+static void SHA_ApplyHomeBar(UIView *view)
 {
     if (!view)
         return;
@@ -103,102 +103,95 @@ static void SHA_MoveHomeBar(UIView *view)
     view.frame = frame;
 }
 
-#pragma mark - Recursive Home Search
+#pragma mark - Recursive Home Indicator Search
 
-static void SHA_FindHomeBar(UIView *view)
+static void SHA_SearchHomeIndicator(UIView *view)
 {
     if (!view)
         return;
 
-    NSString *name =
+    NSString *className =
         NSStringFromClass([view class]);
 
-    if (name)
+    if (className)
     {
-        BOOL found =
-            ([name rangeOfString:@"HomeIndicator"
-                          options:NSCaseInsensitiveSearch].location
-                != NSNotFound);
+        BOOL isHomeIndicator =
+            [className rangeOfString:
+                @"HomeIndicator"
+                options:NSCaseInsensitiveSearch].location
+                != NSNotFound;
 
-        if (!found)
-        {
-            found =
-                ([name rangeOfString:@"HomeBar"
-                              options:NSCaseInsensitiveSearch].location
-                    != NSNotFound);
-        }
+        BOOL isHomeBar =
+            [className rangeOfString:
+                @"HomeBar"
+                options:NSCaseInsensitiveSearch].location
+                != NSNotFound;
 
-        if (!found)
-        {
-            found =
-                ([name rangeOfString:@"LumaDodgePill"
-                              options:NSCaseInsensitiveSearch].location
-                    != NSNotFound);
-        }
+        BOOL isPill =
+            [className rangeOfString:
+                @"LumaDodgePill"
+                options:NSCaseInsensitiveSearch].location
+                != NSNotFound;
 
-        if (found)
+        if (isHomeIndicator ||
+            isHomeBar ||
+            isPill)
         {
             CGRect frame = view.frame;
 
-            if (frame.size.height > 1.0 &&
-                frame.size.height < 100.0)
+            if (frame.size.height >= 2.0 &&
+                frame.size.height <= 100.0)
             {
-                SHA_MoveHomeBar(view);
+                SHA_ApplyHomeBar(view);
             }
         }
     }
 
-    NSArray *children =
-        [view.subviews copy];
-
-    for (UIView *child in children)
+    for (UIView *subview in view.subviews)
     {
-        SHA_FindHomeBar(child);
+        SHA_SearchHomeIndicator(subview);
     }
 }
 
-#pragma mark - Scene Scan
+#pragma mark - Find Windows
 
-static void SHA_ScanSpringBoardWindows(void)
+static void SHA_ApplyHomeBarToScenes(void)
 {
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
-            UIApplication *app =
-                [UIApplication sharedApplication];
+    if (SHAHomeOffset == 0.0)
+        return;
 
-            if (!app)
-                return;
+    UIApplication *application =
+        [UIApplication sharedApplication];
 
-            if (@available(iOS 13.0, *))
+    if (!application)
+        return;
+
+    if (@available(iOS 13.0, *))
+    {
+        NSSet<UIScene *> *scenes =
+            application.connectedScenes;
+
+        for (UIScene *scene in scenes)
+        {
+            if (![scene
+                    isKindOfClass:[UIWindowScene class]])
             {
-                for (UIScene *scene
-                     in app.connectedScenes)
-                {
-                    if (![scene
-                            isKindOfClass:[UIWindowScene class]])
-                    {
-                        continue;
-                    }
+                continue;
+            }
 
-                    UIWindowScene *sceneWindow =
-                        (UIWindowScene *)scene;
+            UIWindowScene *windowScene =
+                (UIWindowScene *)scene;
 
-                    for (UIWindow *window
-                         in sceneWindow.windows)
-                    {
-                        if (!window)
-                            continue;
+            for (UIWindow *window
+                 in windowScene.windows)
+            {
+                if (!window)
+                    continue;
 
-                        if (SHAHomeOffset != 0.0)
-                        {
-                            SHA_FindHomeBar(window);
-                        }
-                    }
-                }
+                SHA_SearchHomeIndicator(window);
             }
         }
-    );
+    }
 }
 
 #pragma mark - _UIStatusBar
@@ -211,7 +204,7 @@ static void SHA_ScanSpringBoardWindows(void)
 
     SHA_LoadPreferences();
 
-    SHA_MoveStatusBar((UIView *)self);
+    SHA_ApplyStatusBar((UIView *)self);
 }
 
 %end
@@ -226,12 +219,12 @@ static void SHA_ScanSpringBoardWindows(void)
 
     SHA_LoadPreferences();
 
-    SHA_MoveStatusBar((UIView *)self);
+    SHA_ApplyStatusBar((UIView *)self);
 }
 
 %end
 
-#pragma mark - SB Status Bar
+#pragma mark - SpringBoard Status Bar
 
 %hook SBMainDisplaySceneLayoutStatusBarView
 
@@ -241,7 +234,7 @@ static void SHA_ScanSpringBoardWindows(void)
 
     SHA_LoadPreferences();
 
-    SHA_MoveStatusBar((UIView *)self);
+    SHA_ApplyStatusBar((UIView *)self);
 }
 
 %end
@@ -256,34 +249,7 @@ static void SHA_ScanSpringBoardWindows(void)
 
     SHA_LoadPreferences();
 
-    SHA_MoveHomeBar((UIView *)self);
-}
-
-%end
-
-#pragma mark - Home Indicator Container
-
-%hook _UIHomeIndicatorViewController
-
-- (void)viewDidLayoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAHomeOffset != 0.0)
-    {
-        UIView *view = self.view;
-
-        if (view)
-        {
-            CGRect frame = view.frame;
-
-            frame.origin.y += SHAHomeOffset;
-
-            view.frame = frame;
-        }
-    }
+    SHA_ApplyHomeBar((UIView *)self);
 }
 
 %end
@@ -300,7 +266,7 @@ static void SHA_SettingsChanged(
 {
     SHA_LoadPreferences();
 
-    SHA_ScanSpringBoardWindows();
+    SHA_ApplyHomeBarToScenes();
 }
 
 #pragma mark - Constructor
@@ -320,6 +286,36 @@ static void SHA_SettingsChanged(
             ),
             NULL,
             CFNotificationSuspensionBehaviorDeliverImmediately
+        );
+
+        /*
+         * Đợi SpringBoard dựng UI hoàn chỉnh.
+         */
+
+        dispatch_after(
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                2 * NSEC_PER_SEC
+            ),
+            dispatch_get_main_queue(),
+            ^{
+                SHA_LoadPreferences();
+
+                SHA_ApplyHomeBarToScenes();
+            }
+        );
+
+        dispatch_after(
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                5 * NSEC_PER_SEC
+            ),
+            dispatch_get_main_queue(),
+            ^{
+                SHA_LoadPreferences();
+
+                SHA_ApplyHomeBarToScenes();
+            }
         );
     }
 }
