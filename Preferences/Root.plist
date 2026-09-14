@@ -5,84 +5,57 @@
 <plist version="1.0">
 <dict>
 
-    <key>PreferenceSpecifiers</key>
+    <key>items</key>
     <array>
 
-        <!-- STATUS BAR -->
-
         <dict>
-            <key>Type</key>
-            <string>PSGroupCell</string>
-
-            <key>Label</key>
-            <string>Status Bar</string>
-        </dict>
-
-        <dict>
-            <key>Type</key>
+            <key>cell</key>
             <string>PSEditTextCell</string>
 
-            <key>Title</key>
-            <string>Status Bar Y</string>
+            <key>default</key>
+            <string>0</string>
 
-            <key>Key</key>
+            <key>defaults</key>
+            <string>com.congtu.statushomebaradjuster</string>
+
+            <key>key</key>
             <string>StatusBarOffset</string>
 
-            <key>DefaultValue</key>
-            <string>0</string>
-
-            <key>KeyboardType</key>
-            <string>NumbersAndPunctuation</string>
-
-            <key>PostNotification</key>
-            <string>com.congtu.statushomebaradjuster/preferences.changed</string>
-        </dict>
-
-
-        <!-- HOME BAR -->
-
-        <dict>
-            <key>Type</key>
-            <string>PSGroupCell</string>
-
-            <key>Label</key>
-            <string>Home Bar</string>
+            <key>label</key>
+            <string>Status Bar Y</string>
         </dict>
 
         <dict>
-            <key>Type</key>
+            <key>cell</key>
             <string>PSEditTextCell</string>
 
-            <key>Title</key>
-            <string>Home Bar Y</string>
-
-            <key>Key</key>
-            <string>HomeBarOffset</string>
-
-            <key>DefaultValue</key>
+            <key>default</key>
             <string>0</string>
 
-            <key>KeyboardType</key>
-            <string>NumbersAndPunctuation</string>
+            <key>defaults</key>
+            <string>com.congtu.statushomebaradjuster</string>
 
-            <key>PostNotification</key>
-            <string>com.congtu.statushomebaradjuster/preferences.changed</string>
+            <key>key</key>
+            <string>HomeBarOffset</string>
+
+            <key>label</key>
+            <string>Home Bar Y</string>
         </dict>
 
-
-        <!-- INFORMATION -->
-
         <dict>
-            <key>Type</key>
-            <string>PSGroupCell</string>
+            <key>action</key>
+            <string>applySettings</string>
 
-            <key>FooterText</key>
-            <string>Âm = lên. Dương = xuống. Phạm vi: -120 đến +120 px. Respring để áp dụng thay đổi.</string>
+            <key>cell</key>
+            <string>PSButtonCell</string>
+
+            <key>label</key>
+            <string>Apply</string>
         </dict>
 
     </array>
 
-    <key>Title</key>
+    <key>title</key>
     <string>Status &amp; Home Bar Adjuster</string>
 
 </dict>
