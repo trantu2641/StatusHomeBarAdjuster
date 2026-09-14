@@ -2,42 +2,74 @@ name: Build RootHide DEB
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - main
 
 jobs:
+
   build:
+
     runs-on: macos-14
 
     steps:
+
+      # ==========================================
+      # CHECKOUT
+      # ==========================================
+
       - name: Checkout
         uses: actions/checkout@v4
+
+
+      # ==========================================
+      # DEPENDENCIES
+      # ==========================================
 
       - name: Install dependencies
         run: |
           brew install ldid
 
-      - name: Clone RootHide Theos
+
+      # ==========================================
+      # ROOT HIDE THEOS
+      # ==========================================
+
+      - name: Install RootHide Theos
         run: |
+
           set -e
 
           git clone --recursive \
             https://github.com/roothide/theos.git \
             "$GITHUB_WORKSPACE/theos"
 
-          echo "THEOS=$GITHUB_WORKSPACE/theos" >> "$GITHUB_ENV"
+          echo "THEOS=$GITHUB_WORKSPACE/theos" \
+            >> "$GITHUB_ENV"
+
+
+      # ==========================================
+      # THEOS SDKS
+      # ==========================================
 
       - name: Download Theos SDK repository
         run: |
+
           set -e
 
           git clone --depth 1 \
             https://github.com/theos/sdks.git \
             "$GITHUB_WORKSPACE/sdks"
 
+
+      # ==========================================
+      # INSTALL IPHONEOS SDK
+      # ==========================================
+
       - name: Install iPhoneOS SDK
         run: |
+
           set -e
 
           mkdir -p "$THEOS/sdks"
@@ -50,9 +82,16 @@ jobs:
             | tail -n 1)
 
           if [ -z "$SDK" ]; then
-            echo "ERROR: No iPhoneOS SDK found"
-            find "$GITHUB_WORKSPACE/sdks" -maxdepth 2 -type d -name "*.sdk"
+
+            echo "ERROR: iPhoneOS SDK not found."
+
+            find "$GITHUB_WORKSPACE/sdks" \
+              -maxdepth 2 \
+              -type d \
+              -name "*.sdk"
+
             exit 1
+
           fi
 
           echo "Using SDK:"
@@ -60,33 +99,41 @@ jobs:
 
           cp -R "$SDK" "$THEOS/sdks/"
 
-      - name: Check Theos
+
+      # ==========================================
+      # VERIFY THEOS
+      # ==========================================
+
+      - name: Verify Theos
         run: |
+
           set -e
 
-          echo "THEOS = $THEOS"
+          echo "THEOS:"
+          echo "$THEOS"
 
-          test -f "$THEOS/makefiles/common.mk"
+          test -f \
+            "$THEOS/makefiles/common.mk"
 
-          echo "Theos OK"
+          echo "Theos OK."
 
-          echo "Available SDKs:"
+          echo
+          echo "SDKs:"
+
           find "$THEOS/sdks" \
             -maxdepth 1 \
             -type d \
             -name "iPhoneOS*.sdk" \
             -print
 
-      - name: Check RootHide package scheme
-        run: |
-          set -e
 
-          grep -R "roothide" "$THEOS/makefiles" \
-            "$THEOS/makefiles/package" \
-            2>/dev/null | head -30 || true
+      # ==========================================
+      # BUILD ROOT HIDE DEB
+      # ==========================================
 
       - name: Build RootHide package
         run: |
+
           set -e
 
           make clean
@@ -95,40 +142,66 @@ jobs:
             FINALPACKAGE=1 \
             THEOS_PACKAGE_SCHEME=roothide
 
+
+      # ==========================================
+      # VERIFY DEB
+      # ==========================================
+
       - name: Verify generated DEB
         run: |
+
           set -e
 
-          echo "=============================="
-          echo "Generated packages:"
-          echo "=============================="
+          echo
+          echo "================================"
+          echo "Generated DEB"
+          echo "================================"
 
           find "$GITHUB_WORKSPACE/packages" \
             -type f \
             -name "*.deb" \
             -print
 
-          DEB=$(find "$GITHUB_WORKSPACE/packages" \
+          DEB=$(find \
+            "$GITHUB_WORKSPACE/packages" \
             -type f \
             -name "*.deb" \
             | head -n 1)
 
           if [ -z "$DEB" ]; then
-            echo "ERROR: No DEB generated"
+
+            echo "ERROR: No DEB generated."
+
             exit 1
+
           fi
 
           echo
-          echo "DEB:"
+          echo "DEB FILE:"
           echo "$DEB"
 
           echo
-          echo "Package information:"
-          dpkg-deb -I "$DEB"
+          echo "FILE INFORMATION:"
+
+          file "$DEB"
+
+          echo
+          echo "SIZE:"
+
+          ls -lh "$DEB"
+
+
+      # ==========================================
+      # UPLOAD REAL DEB
+      # ==========================================
 
       - name: Upload RootHide DEB
         uses: actions/upload-artifact@v4
+
         with:
+
           name: StatusHomeBarAdjuster-RootHide-DEB
+
           path: packages/*.deb
+
           if-no-files-found: error
