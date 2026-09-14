@@ -2,7 +2,9 @@ name: Build RootHide DEB
 
 on:
   workflow_dispatch:
-
+  push:
+    branches:
+      - main
 
 jobs:
   build:
@@ -14,50 +16,76 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install make ldid
+          brew install ldid
 
-      - name: Install RootHide Theos
+      - name: Clone RootHide Theos
         run: |
           set -e
 
-          export THEOS="$GITHUB_WORKSPACE/theos"
-
           git clone --recursive \
             https://github.com/roothide/theos.git \
-            "$THEOS"
+            "$GITHUB_WORKSPACE/theos"
 
-          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> "$GITHUB_ENV"
 
-      - name: Install iOS SDK
+      - name: Download Theos SDK repository
+        run: |
+          set -e
+
+          git clone --depth 1 \
+            https://github.com/theos/sdks.git \
+            "$GITHUB_WORKSPACE/sdks"
+
+      - name: Install iPhoneOS SDK
         run: |
           set -e
 
           mkdir -p "$THEOS/sdks"
 
-          curl -L \
-            https://github.com/theos/sdks/releases/latest/download/iPhoneOS16.5.sdk.tar.xz \
-            -o "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz"
+          SDK=$(find "$GITHUB_WORKSPACE/sdks" \
+            -maxdepth 1 \
+            -type d \
+            -name "iPhoneOS*.sdk" \
+            | sort -V \
+            | tail -n 1)
 
-          tar -xJf \
-            "$RUNNER_TEMP/iPhoneOS16.5.sdk.tar.xz" \
-            -C "$THEOS/sdks"
+          if [ -z "$SDK" ]; then
+            echo "ERROR: No iPhoneOS SDK found"
+            find "$GITHUB_WORKSPACE/sdks" -maxdepth 2 -type d -name "*.sdk"
+            exit 1
+          fi
 
-          echo "Installed SDK:"
-          ls -la "$THEOS/sdks"
+          echo "Using SDK:"
+          echo "$SDK"
 
-      - name: Verify RootHide Theos
+          cp -R "$SDK" "$THEOS/sdks/"
+
+      - name: Check Theos
         run: |
+          set -e
+
           echo "THEOS = $THEOS"
 
-          test -d "$THEOS"
+          test -f "$THEOS/makefiles/common.mk"
 
-          test -d "$THEOS/lib/iphone/roothide"
+          echo "Theos OK"
 
-          echo "RootHide support detected."
+          echo "Available SDKs:"
+          find "$THEOS/sdks" \
+            -maxdepth 1 \
+            -type d \
+            -name "iPhoneOS*.sdk" \
+            -print
 
-          ls -la "$THEOS/lib/iphone/roothide"
+      - name: Check RootHide package scheme
+        run: |
+          set -e
 
-      - name: Build RootHide DEB
+          grep -R "roothide" "$THEOS/makefiles" \
+            "$THEOS/makefiles/package" \
+            2>/dev/null | head -30 || true
+
+      - name: Build RootHide package
         run: |
           set -e
 
@@ -67,11 +95,13 @@ jobs:
             FINALPACKAGE=1 \
             THEOS_PACKAGE_SCHEME=roothide
 
-      - name: Verify DEB
+      - name: Verify generated DEB
         run: |
           set -e
 
-          echo "=== Packages ==="
+          echo "=============================="
+          echo "Generated packages:"
+          echo "=============================="
 
           find "$GITHUB_WORKSPACE/packages" \
             -type f \
@@ -84,16 +114,17 @@ jobs:
             | head -n 1)
 
           if [ -z "$DEB" ]; then
-            echo "ERROR: No DEB generated."
+            echo "ERROR: No DEB generated"
             exit 1
           fi
 
-          echo "Generated:"
+          echo
+          echo "DEB:"
           echo "$DEB"
 
-          echo "=== Debian information ==="
-
-          dpkg-deb -I "$DEB" || true
+          echo
+          echo "Package information:"
+          dpkg-deb -I "$DEB"
 
       - name: Upload RootHide DEB
         uses: actions/upload-artifact@v4
