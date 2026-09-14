@@ -8,48 +8,23 @@
 
 <dict>
 
-    <key>CFBundleDevelopmentRegion</key>
-    <string>en</string>
+    <key>entry</key>
 
+    <dict>
 
-    <key>CFBundleDisplayName</key>
-    <string>Status &amp; Home Bar Adjuster</string>
+        <key>bundle</key>
+        <string>SHAStatusHomeBarAdjusterPrefs</string>
 
+        <key>cell</key>
+        <string>PSLinkCell</string>
 
-    <key>CFBundleExecutable</key>
-    <string>SHAStatusHomeBarAdjusterPrefs</string>
+        <key>isController</key>
+        <true/>
 
+        <key>label</key>
+        <string>Status &amp; Home Bar Adjuster</string>
 
-    <key>CFBundleIdentifier</key>
-    <string>com.congtu.sha.statushomebaradjusterprefs</string>
-
-
-    <key>CFBundleInfoDictionaryVersion</key>
-    <string>6.0</string>
-
-
-    <key>CFBundleName</key>
-    <string>SHAStatusHomeBarAdjusterPrefs</string>
-
-
-    <key>CFBundlePackageType</key>
-    <string>BNDL</string>
-
-
-    <key>CFBundleShortVersionString</key>
-    <string>1.0.3</string>
-
-
-    <key>CFBundleVersion</key>
-    <string>1</string>
-
-
-    <!--
-        KHÔNG dùng RootListController
-    -->
-
-    <key>NSPrincipalClass</key>
-    <string>SHAStatusHomeBarAdjusterController</string>
+    </dict>
 
 </dict>
 
