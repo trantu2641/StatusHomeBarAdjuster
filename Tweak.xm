@@ -6,8 +6,6 @@
 static CGFloat SHAStatusOffset = 0.0;
 static CGFloat SHAHomeOffset = 0.0;
 
-static NSMutableSet *SHAAdjustedViews;
-
 #pragma mark - Preferences
 
 static void SHA_LoadPreferences(void)
@@ -43,11 +41,7 @@ static void SHA_LoadPreferences(void)
             &value
         );
 
-        if (value < -120.0)
-            value = -120.0;
-
-        if (value > 120.0)
-            value = 120.0;
+        value = MAX(-120.0, MIN(120.0, value));
 
         SHAStatusOffset = (CGFloat)value;
     }
@@ -63,11 +57,7 @@ static void SHA_LoadPreferences(void)
             &value
         );
 
-        if (value < -120.0)
-            value = -120.0;
-
-        if (value > 120.0)
-            value = 120.0;
+        value = MAX(-120.0, MIN(120.0, value));
 
         SHAHomeOffset = (CGFloat)value;
     }
@@ -79,27 +69,9 @@ static void SHA_LoadPreferences(void)
         CFRelease(homeValue);
 }
 
-#pragma mark - Reset
+#pragma mark - Status Bar
 
-static void SHA_ResetAdjustedViews(void)
-{
-    if (!SHAAdjustedViews)
-        return;
-
-    for (UIView *view in [SHAAdjustedViews allObjects])
-    {
-        if ([view isKindOfClass:[UIView class]])
-        {
-            view.transform = CGAffineTransformIdentity;
-        }
-    }
-
-    [SHAAdjustedViews removeAllObjects];
-}
-
-#pragma mark - Apply
-
-static void SHA_ApplyStatusToView(UIView *view)
+static void SHA_MoveStatusBar(UIView *view)
 {
     if (!view)
         return;
@@ -107,19 +79,16 @@ static void SHA_ApplyStatusToView(UIView *view)
     if (SHAStatusOffset == 0.0)
         return;
 
-    view.transform =
-        CGAffineTransformMakeTranslation(
-            0.0,
-            SHAStatusOffset
-        );
+    CGRect frame = view.frame;
 
-    if (!SHAAdjustedViews)
-        SHAAdjustedViews = [NSMutableSet set];
+    frame.origin.y += SHAStatusOffset;
 
-    [SHAAdjustedViews addObject:view];
+    view.frame = frame;
 }
 
-static void SHA_ApplyHomeToView(UIView *view)
+#pragma mark - Home Bar
+
+static void SHA_MoveHomeBar(UIView *view)
 {
     if (!view)
         return;
@@ -127,153 +96,104 @@ static void SHA_ApplyHomeToView(UIView *view)
     if (SHAHomeOffset == 0.0)
         return;
 
-    view.transform =
-        CGAffineTransformMakeTranslation(
-            0.0,
-            SHAHomeOffset
-        );
+    CGRect frame = view.frame;
 
-    if (!SHAAdjustedViews)
-        SHAAdjustedViews = [NSMutableSet set];
+    frame.origin.y += SHAHomeOffset;
 
-    [SHAAdjustedViews addObject:view];
+    view.frame = frame;
 }
 
-#pragma mark - Recursive Search
+#pragma mark - Recursive Home Search
 
-static void SHA_SearchViewTree(UIView *view)
+static void SHA_FindHomeBar(UIView *view)
 {
     if (!view)
         return;
 
-    NSString *className =
+    NSString *name =
         NSStringFromClass([view class]);
 
-    if (!className)
-        return;
-
-    /*
-     * STATUS BAR
-     */
-
-    BOOL isStatusBar =
-        [className isEqualToString:
-            @"SBMainDisplaySceneLayoutStatusBarView"] ||
-
-        [className isEqualToString:
-            @"_UIStatusBar"] ||
-
-        [className isEqualToString:
-            @"UIStatusBar"];
-
-    if (isStatusBar)
+    if (name)
     {
-        CGRect frame = view.frame;
+        BOOL found =
+            ([name rangeOfString:@"HomeIndicator"
+                          options:NSCaseInsensitiveSearch].location
+                != NSNotFound);
 
-        if (frame.size.height >= 15.0 &&
-            frame.size.height <= 80.0)
+        if (!found)
         {
-            SHA_ApplyStatusToView(view);
+            found =
+                ([name rangeOfString:@"HomeBar"
+                              options:NSCaseInsensitiveSearch].location
+                    != NSNotFound);
+        }
+
+        if (!found)
+        {
+            found =
+                ([name rangeOfString:@"LumaDodgePill"
+                              options:NSCaseInsensitiveSearch].location
+                    != NSNotFound);
+        }
+
+        if (found)
+        {
+            CGRect frame = view.frame;
+
+            if (frame.size.height > 1.0 &&
+                frame.size.height < 100.0)
+            {
+                SHA_MoveHomeBar(view);
+            }
         }
     }
 
-    /*
-     * HOME INDICATOR
-     */
+    NSArray *children =
+        [view.subviews copy];
 
-    BOOL isHomeIndicator =
-        [className rangeOfString:
-            @"HomeIndicator"
-            options:NSCaseInsensitiveSearch].location
-            != NSNotFound;
-
-    BOOL isLumaPill =
-        [className rangeOfString:
-            @"LumaDodgePill"
-            options:NSCaseInsensitiveSearch].location
-            != NSNotFound;
-
-    BOOL isHomeBar =
-        [className rangeOfString:
-            @"HomeBar"
-            options:NSCaseInsensitiveSearch].location
-            != NSNotFound;
-
-    if (isHomeIndicator ||
-        isLumaPill ||
-        isHomeBar)
+    for (UIView *child in children)
     {
-        CGRect frame = view.frame;
-
-        if (frame.size.height >= 2.0 &&
-            frame.size.height <= 80.0)
-        {
-            SHA_ApplyHomeToView(view);
-        }
-    }
-
-    /*
-     * Tìm sâu toàn bộ hierarchy.
-     */
-
-    for (UIView *subview in view.subviews)
-    {
-        SHA_SearchViewTree(subview);
+        SHA_FindHomeBar(child);
     }
 }
 
-#pragma mark - Apply To Scene Windows
+#pragma mark - Scene Scan
 
-static void SHA_ApplyToAllWindows(void)
+static void SHA_ScanSpringBoardWindows(void)
 {
     dispatch_async(
         dispatch_get_main_queue(),
         ^{
-            UIApplication *application =
+            UIApplication *app =
                 [UIApplication sharedApplication];
 
-            if (!application)
+            if (!app)
                 return;
-
-            SHA_ResetAdjustedViews();
-
-            if (SHAStatusOffset == 0.0 &&
-                SHAHomeOffset == 0.0)
-            {
-                return;
-            }
-
-            /*
-             * iOS 13+:
-             * Chỉ sử dụng UIWindowScene.windows.
-             */
 
             if (@available(iOS 13.0, *))
             {
-                NSSet<UIScene *> *scenes =
-                    application.connectedScenes;
-
-                for (UIScene *scene in scenes)
+                for (UIScene *scene
+                     in app.connectedScenes)
                 {
                     if (![scene
-                            isKindOfClass:
-                                [UIWindowScene class]])
+                            isKindOfClass:[UIWindowScene class]])
                     {
                         continue;
                     }
 
-                    UIWindowScene *windowScene =
+                    UIWindowScene *sceneWindow =
                         (UIWindowScene *)scene;
 
-                    NSArray<UIWindow *> *windows =
-                        windowScene.windows;
-
-                    for (UIWindow *window in windows)
+                    for (UIWindow *window
+                         in sceneWindow.windows)
                     {
                         if (!window)
                             continue;
 
-                        SHA_SearchViewTree(window);
+                        if (SHAHomeOffset != 0.0)
+                        {
+                            SHA_FindHomeBar(window);
+                        }
                     }
                 }
             }
@@ -281,9 +201,96 @@ static void SHA_ApplyToAllWindows(void)
     );
 }
 
-#pragma mark - Notification
+#pragma mark - _UIStatusBar
 
-static void SHA_PreferencesChanged(
+%hook _UIStatusBar
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    SHA_MoveStatusBar((UIView *)self);
+}
+
+%end
+
+#pragma mark - UIStatusBar
+
+%hook UIStatusBar
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    SHA_MoveStatusBar((UIView *)self);
+}
+
+%end
+
+#pragma mark - SB Status Bar
+
+%hook SBMainDisplaySceneLayoutStatusBarView
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    SHA_MoveStatusBar((UIView *)self);
+}
+
+%end
+
+#pragma mark - Home Indicator
+
+%hook _UIHomeIndicatorView
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    SHA_MoveHomeBar((UIView *)self);
+}
+
+%end
+
+#pragma mark - Home Indicator Container
+
+%hook _UIHomeIndicatorViewController
+
+- (void)viewDidLayoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    if (SHAHomeOffset != 0.0)
+    {
+        UIView *view = self.view;
+
+        if (view)
+        {
+            CGRect frame = view.frame;
+
+            frame.origin.y += SHAHomeOffset;
+
+            view.frame = frame;
+        }
+    }
+}
+
+%end
+
+#pragma mark - Settings Changed
+
+static void SHA_SettingsChanged(
     CFNotificationCenterRef center,
     void *observer,
     CFStringRef name,
@@ -293,162 +300,8 @@ static void SHA_PreferencesChanged(
 {
     SHA_LoadPreferences();
 
-    /*
-     * Apply ngay sau khi bấm Apply.
-     */
-
-    SHA_ApplyToAllWindows();
+    SHA_ScanSpringBoardWindows();
 }
-
-#pragma mark - _UIStatusBar
-
-%hook _UIStatusBar
-
-- (void)didMoveToWindow
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAStatusOffset != 0.0)
-    {
-        SHA_ApplyStatusToView((UIView *)self);
-    }
-}
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAStatusOffset != 0.0)
-    {
-        SHA_ApplyStatusToView((UIView *)self);
-    }
-}
-
-%end
-
-#pragma mark - UIStatusBar
-
-%hook UIStatusBar
-
-- (void)didMoveToWindow
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAStatusOffset != 0.0)
-    {
-        SHA_ApplyStatusToView((UIView *)self);
-    }
-}
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAStatusOffset != 0.0)
-    {
-        SHA_ApplyStatusToView((UIView *)self);
-    }
-}
-
-%end
-
-#pragma mark - SBMainDisplaySceneLayoutStatusBarView
-
-%hook SBMainDisplaySceneLayoutStatusBarView
-
-- (void)didMoveToWindow
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAStatusOffset != 0.0)
-    {
-        SHA_ApplyStatusToView((UIView *)self);
-    }
-}
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAStatusOffset != 0.0)
-    {
-        SHA_ApplyStatusToView((UIView *)self);
-    }
-}
-
-%end
-
-#pragma mark - Home Indicator
-
-%hook _UIHomeIndicatorView
-
-- (void)didMoveToWindow
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAHomeOffset != 0.0)
-    {
-        SHA_ApplyHomeToView((UIView *)self);
-    }
-}
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAHomeOffset != 0.0)
-    {
-        SHA_ApplyHomeToView((UIView *)self);
-    }
-}
-
-%end
-
-#pragma mark - Luma Dodge Pill
-
-%hook MTLumaDodgePillView
-
-- (void)didMoveToWindow
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAHomeOffset != 0.0)
-    {
-        SHA_ApplyHomeToView((UIView *)self);
-    }
-}
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    if (SHAHomeOffset != 0.0)
-    {
-        SHA_ApplyHomeToView((UIView *)self);
-    }
-}
-
-%end
 
 #pragma mark - Constructor
 
@@ -456,48 +309,17 @@ static void SHA_PreferencesChanged(
 {
     @autoreleasepool
     {
-        SHAAdjustedViews =
-            [NSMutableSet set];
-
         SHA_LoadPreferences();
 
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
             NULL,
-            SHA_PreferencesChanged,
+            SHA_SettingsChanged,
             CFSTR(
                 "com.congtu.statushomebaradjuster.settingsChanged"
             ),
             NULL,
             CFNotificationSuspensionBehaviorDeliverImmediately
-        );
-
-        /*
-         * SpringBoard cần thời gian dựng UI.
-         */
-
-        dispatch_after(
-            dispatch_time(
-                DISPATCH_TIME_NOW,
-                2 * NSEC_PER_SEC
-            ),
-            dispatch_get_main_queue(),
-            ^{
-                SHA_LoadPreferences();
-                SHA_ApplyToAllWindows();
-            }
-        );
-
-        dispatch_after(
-            dispatch_time(
-                DISPATCH_TIME_NOW,
-                5 * NSEC_PER_SEC
-            ),
-            dispatch_get_main_queue(),
-            ^{
-                SHA_LoadPreferences();
-                SHA_ApplyToAllWindows();
-            }
         );
     }
 }
