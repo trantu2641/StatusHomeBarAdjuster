@@ -5,24 +5,20 @@
 static CGFloat SHAStatusOffset = 0.0;
 static CGFloat SHAHomeOffset = 0.0;
 
-static BOOL SHAAdjustingStatus = NO;
-static BOOL SHAAdjustingHome = NO;
 
-static CGFloat SHAClamp(CGFloat value) {
-    if (value < -120.0)
-        return -120.0;
-
-    if (value > 120.0)
-        return 120.0;
-
-    return value;
-}
-
-static void SHA_LoadPreferences(void) {
+/*
+ * Đọc settings từ domain RIÊNG.
+ *
+ * Không liên quan:
+ * xyz.cypwn.systemcorner
+ */
+static void SHA_LoadPreferences(void)
+{
     CFStringRef domain =
         CFSTR("com.congtu.statushomebaradjuster");
 
     CFPreferencesAppSynchronize(domain);
+
 
     CFPropertyListRef statusValue =
         CFPreferencesCopyAppValue(
@@ -30,18 +26,21 @@ static void SHA_LoadPreferences(void) {
             domain
         );
 
+
     CFPropertyListRef homeValue =
         CFPreferencesCopyAppValue(
             CFSTR("HomeBarOffset"),
             domain
         );
 
+
     SHAStatusOffset = 0.0;
     SHAHomeOffset = 0.0;
 
-    if (statusValue &&
-        CFGetTypeID(statusValue) == CFNumberGetTypeID()) {
 
+    if (statusValue &&
+        CFGetTypeID(statusValue) == CFNumberGetTypeID())
+    {
         double value = 0.0;
 
         CFNumberGetValue(
@@ -50,12 +49,19 @@ static void SHA_LoadPreferences(void) {
             &value
         );
 
-        SHAStatusOffset = SHAClamp((CGFloat)value);
+        if (value < -120.0)
+            value = -120.0;
+
+        if (value > 120.0)
+            value = 120.0;
+
+        SHAStatusOffset = (CGFloat)value;
     }
 
-    if (homeValue &&
-        CFGetTypeID(homeValue) == CFNumberGetTypeID()) {
 
+    if (homeValue &&
+        CFGetTypeID(homeValue) == CFNumberGetTypeID())
+    {
         double value = 0.0;
 
         CFNumberGetValue(
@@ -64,8 +70,15 @@ static void SHA_LoadPreferences(void) {
             &value
         );
 
-        SHAHomeOffset = SHAClamp((CGFloat)value);
+        if (value < -120.0)
+            value = -120.0;
+
+        if (value > 120.0)
+            value = 120.0;
+
+        SHAHomeOffset = (CGFloat)value;
     }
+
 
     if (statusValue)
         CFRelease(statusValue);
@@ -76,7 +89,8 @@ static void SHA_LoadPreferences(void) {
 
 
 /*
- * Nhận thay đổi từ Settings.
+ * Khi bấm Apply trong Settings,
+ * reload lại giá trị.
  */
 static void SHA_PreferencesChanged(
     CFNotificationCenterRef center,
@@ -84,76 +98,100 @@ static void SHA_PreferencesChanged(
     CFStringRef name,
     const void *object,
     CFDictionaryRef userInfo
-) {
+)
+{
     SHA_LoadPreferences();
 }
 
 
 /*
- * =========================
  * STATUS BAR
- * =========================
  */
 
 %hook UIStatusBar
 
-- (void)setFrame:(CGRect)frame {
+- (void)setFrame:(CGRect)frame
+{
+    static BOOL busy = NO;
 
-    if (SHAAdjustingStatus || SHAStatusOffset == 0.0) {
+
+    if (busy || SHAStatusOffset == 0.0)
+    {
         %orig(frame);
         return;
     }
 
-    SHAAdjustingStatus = YES;
+
+    busy = YES;
+
 
     frame.origin.y += SHAStatusOffset;
 
+
     %orig(frame);
 
-    SHAAdjustingStatus = NO;
+
+    busy = NO;
 }
 
 %end
 
 
+
 /*
- * =========================
- * HOME INDICATOR
- * =========================
+ * HOME BAR
  */
 
 %hook _UIHomeIndicatorView
 
-- (void)setFrame:(CGRect)frame {
+- (void)setFrame:(CGRect)frame
+{
+    static BOOL busy = NO;
 
-    if (SHAAdjustingHome || SHAHomeOffset == 0.0) {
+
+    if (busy || SHAHomeOffset == 0.0)
+    {
         %orig(frame);
         return;
     }
 
-    SHAAdjustingHome = YES;
+
+    busy = YES;
+
 
     frame.origin.y += SHAHomeOffset;
 
+
     %orig(frame);
 
-    SHAAdjustingHome = NO;
+
+    busy = NO;
 }
 
 %end
 
 
-%ctor {
-    @autoreleasepool {
 
+%ctor
+{
+    @autoreleasepool
+    {
         SHA_LoadPreferences();
+
 
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
+
             NULL,
+
             SHA_PreferencesChanged,
-            CFSTR("com.congtu.statushomebaradjuster.settingsChanged"),
+
+            CFSTR(
+                "com.congtu.statushomebaradjuster.settingsChanged"
+            ),
+
             NULL,
+
             CFNotificationSuspensionBehaviorDeliverImmediately
         );
     }
