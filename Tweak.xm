@@ -8,7 +8,7 @@ static CGFloat SHAHomeOffset = 0.0;
 static BOOL SHAAdjustingStatus = NO;
 static BOOL SHAAdjustingHome = NO;
 
-static CGFloat SHA_Clamp(CGFloat value) {
+static CGFloat SHAClamp(CGFloat value) {
     if (value < -120.0)
         return -120.0;
 
@@ -19,7 +19,6 @@ static CGFloat SHA_Clamp(CGFloat value) {
 }
 
 static void SHA_LoadPreferences(void) {
-
     CFStringRef domain =
         CFSTR("com.congtu.statushomebaradjuster");
 
@@ -51,7 +50,7 @@ static void SHA_LoadPreferences(void) {
             &value
         );
 
-        SHAStatusOffset = SHA_Clamp((CGFloat)value);
+        SHAStatusOffset = SHAClamp((CGFloat)value);
     }
 
     if (homeValue &&
@@ -65,7 +64,7 @@ static void SHA_LoadPreferences(void) {
             &value
         );
 
-        SHAHomeOffset = SHA_Clamp((CGFloat)value);
+        SHAHomeOffset = SHAClamp((CGFloat)value);
     }
 
     if (statusValue)
@@ -76,20 +75,31 @@ static void SHA_LoadPreferences(void) {
 }
 
 
-/* ==========================================
-   STATUS BAR
-   ========================================== */
+/*
+ * Nhận thay đổi từ Settings.
+ */
+static void SHA_PreferencesChanged(
+    CFNotificationCenterRef center,
+    void *observer,
+    CFStringRef name,
+    const void *object,
+    CFDictionaryRef userInfo
+) {
+    SHA_LoadPreferences();
+}
+
+
+/*
+ * =========================
+ * STATUS BAR
+ * =========================
+ */
 
 %hook UIStatusBar
 
 - (void)setFrame:(CGRect)frame {
 
-    if (SHAAdjustingStatus) {
-        %orig(frame);
-        return;
-    }
-
-    if (SHAStatusOffset == 0.0) {
+    if (SHAAdjustingStatus || SHAStatusOffset == 0.0) {
         %orig(frame);
         return;
     }
@@ -106,20 +116,17 @@ static void SHA_LoadPreferences(void) {
 %end
 
 
-/* ==========================================
-   HOME INDICATOR
-   ========================================== */
+/*
+ * =========================
+ * HOME INDICATOR
+ * =========================
+ */
 
 %hook _UIHomeIndicatorView
 
 - (void)setFrame:(CGRect)frame {
 
-    if (SHAAdjustingHome) {
-        %orig(frame);
-        return;
-    }
-
-    if (SHAHomeOffset == 0.0) {
+    if (SHAAdjustingHome || SHAHomeOffset == 0.0) {
         %orig(frame);
         return;
     }
@@ -136,12 +143,18 @@ static void SHA_LoadPreferences(void) {
 %end
 
 
-/* ==========================================
-   INITIALIZATION
-   ========================================== */
-
 %ctor {
     @autoreleasepool {
+
         SHA_LoadPreferences();
+
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            NULL,
+            SHA_PreferencesChanged,
+            CFSTR("com.congtu.statushomebaradjuster.settingsChanged"),
+            NULL,
+            CFNotificationSuspensionBehaviorDeliverImmediately
+        );
     }
 }
