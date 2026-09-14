@@ -1,0 +1,34 @@
+name: Build RootHide Tweak
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Theos
+        uses: theos/theos-action@main
+        with:
+          theos-src: theos/theos
+          sdks: iPhoneOS15.2.sdk
+
+      - name: Build RootHide Debian
+        run: |
+          make clean
+          make package FINALPACKAGE=1 THEOS_PACKAGE_SCHEME=roothide
+
+      - name: Find package
+        run: |
+          find packages -type f -name "*.deb" -print
+
+      - name: Upload DEB
+        uses: actions/upload-artifact@v4
+        with:
+          name: StatusHomeBarAdjuster-RootHide
+          path: packages/*.deb
+          if-no-files-found: error
