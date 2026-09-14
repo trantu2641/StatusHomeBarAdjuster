@@ -1,7 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
-#import <objc/runtime.h>
 
 static CGFloat SHAStatusOffset = 0.0;
 static CGFloat SHAHomeOffset = 0.0;
@@ -71,7 +70,7 @@ static void SHA_LoadPreferences(void)
         CFRelease(homeValue);
 }
 
-#pragma mark - Orientation
+#pragma mark - Portrait
 
 static BOOL SHA_IsPortrait(void)
 {
@@ -134,9 +133,9 @@ static CGRect SHA_GetOriginalFrame(UIView *view)
     return frame;
 }
 
-#pragma mark - Move Visual Only
+#pragma mark - Move Visual
 
-static void SHA_MoveViewVisual(
+static void SHA_MoveView(
     UIView *view,
     CGFloat offset
 )
@@ -157,115 +156,7 @@ static void SHA_MoveViewVisual(
         frame;
 }
 
-#pragma mark - Home Bar Detection
-
-static BOOL SHA_IsHomeBarView(UIView *view)
-{
-    if (!view)
-        return NO;
-
-    NSString *className =
-        NSStringFromClass([view class]);
-
-    if (!className)
-        return NO;
-
-    if ([className isEqualToString:@"MTLumaDodgePillView"])
-    {
-        return YES;
-    }
-
-    if ([className isEqualToString:@"MTStaticColorPillView"])
-    {
-        return YES;
-    }
-
-    return NO;
-}
-
 #pragma mark - Home Bar
-
-static void SHA_ApplyHomeBar(UIView *view)
-{
-    if (!view)
-        return;
-
-    if (!SHA_IsPortrait())
-        return;
-
-    SHA_MoveViewVisual(
-        view,
-        SHAHomeOffset
-    );
-}
-
-#pragma mark - Status Bar Detection
-
-static BOOL SHA_IsStatusBarView(UIView *view)
-{
-    if (!view)
-        return NO;
-
-    NSString *name =
-        NSStringFromClass([view class]);
-
-    if (!name)
-        return NO;
-
-    if ([name isEqualToString:
-            @"SBMainDisplaySceneLayoutStatusBarView"])
-    {
-        return YES;
-    }
-
-    if ([name isEqualToString:@"_UIStatusBar"])
-    {
-        return YES;
-    }
-
-    if ([name isEqualToString:@"UIStatusBar"])
-    {
-        return YES;
-    }
-
-    if ([name isEqualToString:@"UIStatusBar_Modern"])
-    {
-        return YES;
-    }
-
-    return NO;
-}
-
-#pragma mark - Status Bar
-
-static void SHA_ApplyStatusBar(UIView *view)
-{
-    if (!view)
-        return;
-
-    if (!SHA_IsPortrait())
-        return;
-
-    SHA_MoveViewVisual(
-        view,
-        SHAStatusOffset
-    );
-}
-
-#pragma mark - Settings Changed
-
-static void SHA_SettingsChanged(
-    CFNotificationCenterRef center,
-    void *observer,
-    CFStringRef name,
-    const void *object,
-    CFDictionaryRef userInfo
-)
-{
-    SHA_LoadPreferences();
-}
-
-#pragma mark - Home Bar Hooks
 
 %hook MTLumaDodgePillView
 
@@ -278,8 +169,9 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_ApplyHomeBar(
-        (UIView *)self
+    SHA_MoveView(
+        (UIView *)self,
+        SHAHomeOffset
     );
 }
 
@@ -297,14 +189,15 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_ApplyHomeBar(
-        (UIView *)self
+    SHA_MoveView(
+        (UIView *)self,
+        SHAHomeOffset
     );
 }
 
 %end
 
-#pragma mark - Status Bar Hooks
+#pragma mark - Status Bar
 
 %hook _UIStatusBar
 
@@ -317,8 +210,9 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_ApplyStatusBar(
-        (UIView *)self
+    SHA_MoveView(
+        (UIView *)self,
+        SHAStatusOffset
     );
 }
 
@@ -336,8 +230,9 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_ApplyStatusBar(
-        (UIView *)self
+    SHA_MoveView(
+        (UIView *)self,
+        SHAStatusOffset
     );
 }
 
@@ -355,12 +250,26 @@ static void SHA_SettingsChanged(
     if (!SHA_IsPortrait())
         return;
 
-    SHA_ApplyStatusBar(
-        (UIView *)self
+    SHA_MoveView(
+        (UIView *)self,
+        SHAStatusOffset
     );
 }
 
 %end
+
+#pragma mark - Settings Changed
+
+static void SHA_SettingsChanged(
+    CFNotificationCenterRef center,
+    void *observer,
+    CFStringRef name,
+    const void *object,
+    CFDictionaryRef userInfo
+)
+{
+    SHA_LoadPreferences();
+}
 
 #pragma mark - Constructor
 
