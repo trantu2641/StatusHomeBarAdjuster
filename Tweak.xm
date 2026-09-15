@@ -1,430 +1,192 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/message.h>
-#import <objc/runtime.h>
 
-@class _UIStatusBar;
-@class SBMainDisplaySceneLayoutStatusBarView;
-@class SBStatusBarContainer;
-@class SBHomeGrabberView;
-@class SBHomeGrabberRotationView;
+#pragma mark - Preferences
 
-static NSString * const kSHAPath =
-    @"/var/mobile/Media/SHA_LiveGeometry.txt";
+static NSString * const kStatusBarKey = @"StatusBarHeight";
+static NSString * const kHomeBarKey   = @"HomeBarHeight";
 
-#pragma mark - File
-
-static void SHAWrite(NSString *text)
+static CGFloat SHAClamp(CGFloat value)
 {
-    if (!text)
-        return;
+    if (value < 0.0)
+        return 0.0;
 
-    @try {
-        NSFileHandle *file =
-            [NSFileHandle fileHandleForWritingAtPath:kSHAPath];
+    if (value > 120.0)
+        return 120.0;
 
-        if (!file) {
-            [text writeToFile:kSHAPath
-                   atomically:YES
-                     encoding:NSUTF8StringEncoding
-                        error:nil];
-            return;
-        }
-
-        [file seekToEndOfFile];
-
-        NSData *data =
-            [text dataUsingEncoding:NSUTF8StringEncoding];
-
-        if (data)
-            [file writeData:data];
-
-        [file closeFile];
-    }
-    @catch (__unused NSException *e) {
-    }
+    return value;
 }
 
-static NSString *SHAClass(id object)
+static CGFloat SHAReadPreference(NSString *key, CGFloat fallback)
 {
-    if (!object)
-        return @"(nil)";
+    NSUserDefaults *defaults =
+        [NSUserDefaults standardUserDefaults];
 
-    return NSStringFromClass([object class]);
+    id value = [defaults objectForKey:key];
+
+    CGFloat result = fallback;
+
+    if ([value isKindOfClass:[NSNumber class]]) {
+
+        result = [(NSNumber *)value doubleValue];
+
+    } else if ([value isKindOfClass:[NSString class]]) {
+
+        result = [(NSString *)value doubleValue];
+    }
+
+    return SHAClamp(result);
 }
 
-static NSString *SHAFrame(CGRect r)
+static CGFloat SHAStatusHeight(void)
 {
-    return [NSString stringWithFormat:
-        @"x=%.2f y=%.2f w=%.2f h=%.2f",
-        r.origin.x,
-        r.origin.y,
-        r.size.width,
-        r.size.height];
+    return SHAReadPreference(kStatusBarKey, 30.0);
 }
 
-#pragma mark - UIView geometry dump
-
-static void SHADumpView(id object, NSString *title)
+static CGFloat SHAHomeHeight(void)
 {
-    if (!object)
-        return;
-
-    UIView *view = nil;
-
-    if ([object isKindOfClass:[UIView class]])
-        view = (UIView *)object;
-
-    NSMutableString *out =
-        [NSMutableString string];
-
-    [out appendFormat:
-        @"\n\n"
-         "============================================================\n"
-         "%@\n"
-         "============================================================\n",
-        title];
-
-    if (!view) {
-        [out appendFormat:
-            @"Object = %@ <%p>\n"
-             "NOT UIView\n",
-            SHAClass(object),
-            object];
-
-        SHAWrite(out);
-        return;
-    }
-
-    UIView *current = view;
-    NSInteger level = 0;
-
-    while (current && level < 30) {
-
-        [out appendFormat:
-            @"\n[%ld] %@ <%p>\n",
-            (long)level,
-            SHAClass(current),
-            current];
-
-        [out appendFormat:
-            @"  frame   : %@\n",
-            SHAFrame(current.frame)];
-
-        [out appendFormat:
-            @"  bounds  : %@\n",
-            SHAFrame(current.bounds)];
-
-        [out appendFormat:
-            @"  center  : %.2f, %.2f\n",
-            current.center.x,
-            current.center.y];
-
-        [out appendFormat:
-            @"  hidden  : %@\n",
-            current.hidden ? @"YES" : @"NO"];
-
-        [out appendFormat:
-            @"  alpha   : %.3f\n",
-            current.alpha];
-
-        if (@available(iOS 11.0, *)) {
-
-            UIEdgeInsets insets =
-                current.safeAreaInsets;
-
-            [out appendFormat:
-                @"  safeArea: top=%.2f left=%.2f "
-                 @"bottom=%.2f right=%.2f\n",
-                insets.top,
-                insets.left,
-                insets.bottom,
-                insets.right];
-        }
-
-        UIView *superview =
-            current.superview;
-
-        [out appendFormat:
-            @"  parent  : %@ <%p>\n",
-            superview ? SHAClass(superview) : @"(nil)",
-            superview];
-
-        @try {
-
-            NSArray *vertical =
-                [current
-                    constraintsAffectingLayoutForAxis:
-                        UILayoutConstraintAxisVertical];
-
-            [out appendFormat:
-                @"  V constraints: %lu\n",
-                (unsigned long)vertical.count];
-
-            NSUInteger count =
-                MIN((NSUInteger)30,
-                    vertical.count);
-
-            for (NSUInteger i = 0; i < count; i++) {
-
-                [out appendFormat:
-                    @"    V[%lu] %@\n",
-                    (unsigned long)i,
-                    vertical[i]];
-            }
-        }
-        @catch (__unused NSException *e) {
-
-            [out appendString:
-                @"  V constraints: EXCEPTION\n"];
-        }
-
-        @try {
-
-            NSArray *horizontal =
-                [current
-                    constraintsAffectingLayoutForAxis:
-                        UILayoutConstraintAxisHorizontal];
-
-            [out appendFormat:
-                @"  H constraints: %lu\n",
-                (unsigned long)horizontal.count];
-
-            NSUInteger count =
-                MIN((NSUInteger)15,
-                    horizontal.count);
-
-            for (NSUInteger i = 0; i < count; i++) {
-
-                [out appendFormat:
-                    @"    H[%lu] %@\n",
-                    (unsigned long)i,
-                    horizontal[i]];
-            }
-        }
-        @catch (__unused NSException *e) {
-
-            [out appendString:
-                @"  H constraints: EXCEPTION\n"];
-        }
-
-        current = superview;
-        level++;
-    }
-
-    SHAWrite(out);
+    return SHAReadPreference(kHomeBarKey, 30.0);
 }
 
-#pragma mark - Class methods dump
+#pragma mark - Orientation
 
-static void SHADumpClass(Class cls, NSString *name)
+static BOOL SHAPortraitOrientation(NSInteger orientation)
 {
-    if (!cls)
-        return;
-
-    NSMutableString *out =
-        [NSMutableString string];
-
-    [out appendFormat:
-        @"\n\n"
-         "############################################################\n"
-         "# CLASS %@\n"
-         "############################################################\n",
-        name];
-
-    Class superClass =
-        class_getSuperclass(cls);
-
-    if (superClass) {
-        [out appendFormat:
-            @"Superclass: %@\n",
-            NSStringFromClass(superClass)];
-    }
-
-    unsigned int count = 0;
-
-    Method *methods =
-        class_copyMethodList(cls, &count);
-
-    [out appendFormat:
-        @"Instance methods: %u\n",
-        count];
-
-    for (unsigned int i = 0; i < count; i++) {
-
-        SEL selector =
-            method_getName(methods[i]);
-
-        [out appendFormat:
-            @"  - %s\n",
-            sel_getName(selector)];
-    }
-
-    if (methods)
-        free(methods);
-
-    unsigned int classCount = 0;
-
-    Method *classMethods =
-        class_copyMethodList(
-            object_getClass(cls),
-            &classCount);
-
-    [out appendFormat:
-        @"Class methods: %u\n",
-        classCount];
-
-    for (unsigned int i = 0;
-         i < classCount;
-         i++) {
-
-        SEL selector =
-            method_getName(classMethods[i]);
-
-        [out appendFormat:
-            @"  + %s\n",
-            sel_getName(selector)];
-    }
-
-    if (classMethods)
-        free(classMethods);
-
-    SHAWrite(out);
+    return
+        orientation == UIInterfaceOrientationPortrait ||
+        orientation == UIInterfaceOrientationPortraitUpsideDown;
 }
 
-#pragma mark - Home Grabber Rotation View
-
-%hook SBHomeGrabberRotationView
-
-- (void)layoutSubviews
+static BOOL SHAPortrait(void)
 {
-    %orig;
+    UIInterfaceOrientation orientation =
+        [UIApplication sharedApplication].statusBarOrientation;
 
-    static BOOL dumped = NO;
+    if (orientation == UIInterfaceOrientationUnknown)
+        return YES;
 
-    if (dumped)
-        return;
-
-    dumped = YES;
-
-    id object = (id)self;
-
-    SHADumpView(
-        object,
-        @"LIVE HOME BAR / SBHomeGrabberRotationView"
-    );
-
-    @try {
-
-        SEL selector =
-            NSSelectorFromString(@"grabberView");
-
-        id receiver = object;
-
-        BOOL responds =
-            [receiver respondsToSelector:selector];
-
-        SHAWrite(
-            [NSString stringWithFormat:
-                @"\n[HOME]\n"
-                 "grabberView selector available = %@\n",
-                responds ? @"YES" : @"NO"]
-        );
-
-        if (responds) {
-
-            id grabber =
-                ((id (*)(id, SEL))
-                    objc_msgSend)(
-                        receiver,
-                        selector);
-
-            if (grabber) {
-
-                SHADumpView(
-                    grabber,
-                    @"LIVE HOME BAR / grabberView"
-                );
-            }
-        }
-    }
-    @catch (NSException *exception) {
-
-        SHAWrite(
-            [NSString stringWithFormat:
-                @"\n[HOME EXCEPTION] %@\n",
-                exception]
-        );
-    }
+    return SHAPortraitOrientation(orientation);
 }
 
-%end
+#pragma mark - Status Bar
 
-#pragma mark - Home Grabber View
-
-%hook SBHomeGrabberView
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    static BOOL dumped = NO;
-
-    if (dumped)
-        return;
-
-    dumped = YES;
-
-    SHADumpView(
-        (id)self,
-        @"LIVE HOME BAR / SBHomeGrabberView"
-    );
-}
-
-%end
-
-#pragma mark - Status Bar Main Display
+/*
+ * This is the important SpringBoard layout owner.
+ *
+ * SBMainDisplaySceneLayoutStatusBarView has:
+ *
+ *   _statusBarFrameForOrientation:
+ *   _layoutStatusBarForOrientation:
+ *   _statusBarAvoidanceFrame
+ *
+ * The old implementation changed UIKit intrinsic size,
+ * but iOS 16's encapsulated layout height constraint won.
+ *
+ * Here we modify the actual frame returned by SpringBoard.
+ */
 
 %hook SBMainDisplaySceneLayoutStatusBarView
 
-- (void)layoutSubviews
+- (CGRect)_statusBarFrameForOrientation:(NSInteger)orientation
 {
-    %orig;
+    CGRect frame = %orig;
 
-    static BOOL dumped = NO;
+    if (!SHAPortraitOrientation(orientation))
+        return frame;
 
-    if (dumped)
-        return;
+    CGFloat height = SHAStatusHeight();
 
-    dumped = YES;
+    /*
+     * Keep TOP edge fixed.
+     *
+     * x       unchanged
+     * y       unchanged
+     * width   unchanged
+     * height  user selected
+     */
+    frame.origin.y = 0.0;
+    frame.size.height = height;
 
-    SHADumpView(
-        (id)self,
-        @"LIVE STATUS BAR / SBMainDisplaySceneLayoutStatusBarView"
-    );
+    return frame;
 }
 
-%end
-
-#pragma mark - Status Bar Container
-
-%hook SBStatusBarContainer
-
-- (void)layoutSubviews
+- (void)_layoutStatusBarForOrientation:(NSInteger)orientation
 {
     %orig;
 
-    static BOOL dumped = NO;
-
-    if (dumped)
+    if (!SHAPortraitOrientation(orientation))
         return;
 
-    dumped = YES;
+    /*
+     * Re-apply the requested status bar geometry after
+     * SpringBoard performs its normal layout.
+     */
+    @try {
 
-    SHADumpView(
-        (id)self,
-        @"LIVE STATUS BAR / SBStatusBarContainer"
-    );
+        SEL selector =
+            NSSelectorFromString(
+                @"_statusBarFrameForOrientation:"
+            );
+
+        if ([self respondsToSelector:selector]) {
+
+            CGRect frame =
+                ((CGRect (*)(id, SEL, NSInteger))
+                    objc_msgSend)(
+                        self,
+                        selector,
+                        orientation
+                    );
+
+            UIView *view = (UIView *)self;
+
+            /*
+             * Only adjust the actual status-bar child.
+             * Do NOT modify this 926pt root view itself.
+             */
+            for (UIView *subview in view.subviews) {
+
+                NSString *name =
+                    NSStringFromClass([subview class]);
+
+                if ([name isEqualToString:@"_UIStatusBar"] ||
+                    [name isEqualToString:@"UIStatusBar_Modern"]) {
+
+                    CGRect current =
+                        subview.frame;
+
+                    current.origin.y = 0.0;
+                    current.size.height =
+                        frame.size.height;
+
+                    subview.frame = current;
+                }
+            }
+        }
+    }
+    @catch (__unused NSException *exception) {
+    }
+}
+
+- (CGRect)_statusBarAvoidanceFrame
+{
+    CGRect frame = %orig;
+
+    if (!SHAPortrait())
+        return frame;
+
+    CGFloat height = SHAStatusHeight();
+
+    /*
+     * Avoidance region must follow the new status-bar
+     * bottom edge, otherwise applications will still
+     * layout underneath the enlarged status bar.
+     */
+    frame.origin.y = 0.0;
+    frame.size.height = height;
+
+    return frame;
 }
 
 %end
@@ -433,21 +195,313 @@ static void SHADumpClass(Class cls, NSString *name)
 
 %hook _UIStatusBar
 
+- (CGSize)intrinsicContentSize
+{
+    CGSize size = %orig;
+
+    if (!SHAPortrait())
+        return size;
+
+    CGFloat height = SHAStatusHeight();
+
+    if (height >= 0.0)
+        size.height = height;
+
+    return size;
+}
+
++ (CGSize)intrinsicContentSizeForTargetScreen:(UIScreen *)screen
+                                    orientation:(NSInteger)orientation
+                                  onLockScreen:(BOOL)lockScreen
+{
+    CGSize size =
+        %orig(screen, orientation, lockScreen);
+
+    if (!SHAPortraitOrientation(orientation))
+        return size;
+
+    size.height = SHAStatusHeight();
+
+    return size;
+}
+
++ (CGSize)intrinsicContentSizeForTargetScreen:(UIScreen *)screen
+                                    orientation:(NSInteger)orientation
+                                  onLockScreen:(BOOL)lockScreen
+                                  isAzulBLinked:(BOOL)isAzulBLinked
+{
+    CGSize size =
+        %orig(
+            screen,
+            orientation,
+            lockScreen,
+            isAzulBLinked
+        );
+
+    if (!SHAPortraitOrientation(orientation))
+        return size;
+
+    size.height = SHAStatusHeight();
+
+    return size;
+}
+
 - (void)layoutSubviews
 {
     %orig;
 
-    static BOOL dumped = NO;
-
-    if (dumped)
+    if (!SHAPortrait())
         return;
 
-    dumped = YES;
+    CGFloat height = SHAStatusHeight();
 
-    SHADumpView(
-        (id)self,
-        @"LIVE STATUS BAR / _UIStatusBar"
-    );
+    /*
+     * _UIStatusBar itself is the 49pt object seen in the
+     * diagnostic dump.
+     *
+     * TOP remains fixed.
+     */
+    CGRect frame = self.frame;
+
+    frame.origin.y = 0.0;
+    frame.size.height = height;
+
+    /*
+     * Only perform this on the status-bar object.
+     */
+    self.frame = frame;
+}
+
+%end
+
+#pragma mark - UIApplicationSceneSettings
+
+/*
+ * This is used by UIKit/SpringBoard to communicate the
+ * status-bar geometry to application scenes.
+ */
+
+%hook UIApplicationSceneSettings
+
+- (CGFloat)statusBarHeight
+{
+    if (!SHAPortrait())
+        return %orig;
+
+    return SHAStatusHeight();
+}
+
+- (CGFloat)defaultStatusBarHeightForOrientation:(NSInteger)orientation
+{
+    CGFloat value =
+        %orig(orientation);
+
+    if (!SHAPortraitOrientation(orientation))
+        return value;
+
+    return SHAStatusHeight();
+}
+
+- (UIEdgeInsets)safeAreaInsetsPortrait
+{
+    UIEdgeInsets insets =
+        %orig;
+
+    insets.top = SHAStatusHeight();
+
+    return insets;
+}
+
+- (UIEdgeInsets)safeAreaInsetsPortraitUpsideDown
+{
+    UIEdgeInsets insets =
+        %orig;
+
+    insets.top = SHAStatusHeight();
+
+    return insets;
+}
+
+- (CGRect)statusBarAvoidanceFrame
+{
+    CGRect frame =
+        %orig;
+
+    if (!SHAPortrait())
+        return frame;
+
+    frame.origin.y = 0.0;
+    frame.size.height = SHAStatusHeight();
+
+    return frame;
+}
+
+#pragma mark - Home Bar
+
+/*
+ * This value is much more important than the frame of
+ * SBHomeGrabberRotationView.
+ *
+ * SpringBoard uses the home-affordance overlay allowance
+ * to reserve the bottom region.
+ *
+ * Bottom edge stays at physical screen bottom.
+ * Increasing the value moves the usable content boundary
+ * upward.
+ */
+
+- (CGFloat)homeAffordanceOverlayAllowance
+{
+    if (!SHAPortrait())
+        return %orig;
+
+    return SHAHomeHeight();
+}
+
+%end
+
+#pragma mark - Home Bar Grabber
+
+%hook SBHomeGrabberView
+
+- (CGRect)grabberFrameForBounds:(CGRect)bounds
+{
+    CGRect frame =
+        %orig(bounds);
+
+    if (!SHAPortrait())
+        return frame;
+
+    CGFloat height =
+        SHAHomeHeight();
+
+    /*
+     * The grabber itself is NOT the full home-bar container.
+     *
+     * Keep its actual visual width/height relationship,
+     * but anchor its bottom edge to the physical bottom.
+     */
+    CGFloat originalHeight =
+        frame.size.height;
+
+    if (originalHeight < 1.0)
+        originalHeight = 5.0;
+
+    /*
+     * At height 0 the home affordance is collapsed.
+     *
+     * For non-zero values, use the requested height as
+     * the available bottom region while preserving the
+     * original pill geometry when possible.
+     */
+    if (height <= 0.0) {
+
+        frame.origin.y =
+            CGRectGetHeight(bounds);
+
+        frame.size.height = 0.0;
+
+    } else {
+
+        frame.origin.y =
+            CGRectGetHeight(bounds) - height;
+
+        frame.size.height = height;
+    }
+
+    return frame;
+}
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    if (!SHAPortrait())
+        return;
+
+    /*
+     * Do NOT change SBHomeGrabberView itself.
+     *
+     * Its diagnostic frame is 428x926 and belongs to the
+     * full-screen interaction layer.
+     *
+     * Only adjust its visual grabber subview(s).
+     */
+    CGFloat height =
+        SHAHomeHeight();
+
+    if (height <= 0.0) {
+
+        for (UIView *subview in self.subviews) {
+
+            NSString *name =
+                NSStringFromClass([subview class]);
+
+            if ([name containsString:@"Pill"] ||
+                [name containsString:@"Grabber"]) {
+
+                subview.hidden = YES;
+            }
+        }
+
+        return;
+    }
+
+    /*
+     * Keep visual Home Bar attached to the bottom.
+     */
+    for (UIView *subview in self.subviews) {
+
+        NSString *name =
+            NSStringFromClass([subview class]);
+
+        if ([name containsString:@"Pill"] ||
+            [name containsString:@"Grabber"]) {
+
+            CGRect frame =
+                subview.frame;
+
+            /*
+             * Only reposition vertically.
+             * Do not scale the pill.
+             */
+            CGFloat bottom =
+                CGRectGetHeight(self.bounds);
+
+            CGFloat desiredBottom =
+                bottom - 0.0;
+
+            frame.origin.y =
+                desiredBottom -
+                frame.size.height;
+
+            if (frame.origin.y < bottom - height)
+                frame.origin.y = bottom - height;
+
+            subview.frame = frame;
+
+            subview.hidden = NO;
+        }
+    }
+}
+
+%end
+
+#pragma mark - Home Rotation Wrapper
+
+%hook SBHomeGrabberRotationView
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    /*
+     * This view is 428x926 according to the diagnostic.
+     * Therefore DO NOT resize it.
+     *
+     * Its job is rotation/coordinate wrapping.
+     * The actual home-bar allowance is controlled above.
+     */
 }
 
 %end
@@ -461,102 +515,14 @@ static void SHADumpClass(Class cls, NSString *name)
         NSString *bundleID =
             [[NSBundle mainBundle] bundleIdentifier];
 
+        /*
+         * This tweak is intended for SpringBoard only.
+         */
         if (![bundleID
             isEqualToString:@"com.apple.springboard"]) {
 
             return;
         }
-
-        /*
-         * Xóa file diagnostic cũ.
-         */
-        [@"" writeToFile:kSHAPath
-               atomically:YES
-                 encoding:NSUTF8StringEncoding
-                    error:nil];
-
-        SHAWrite(
-            @"############################################################\n"
-             "# StatusHomeBarAdjuster\n"
-             "# LIVE GEOMETRY DIAGNOSTIC\n"
-             "#\n"
-             "# NO FRAME / BOUNDS / TRANSFORM IS MODIFIED\n"
-             "############################################################\n"
-        );
-
-        Class homeRotation =
-            objc_getClass(
-                "SBHomeGrabberRotationView");
-
-        Class home =
-            objc_getClass(
-                "SBHomeGrabberView");
-
-        Class statusMain =
-            objc_getClass(
-                "SBMainDisplaySceneLayoutStatusBarView");
-
-        Class statusContainer =
-            objc_getClass(
-                "SBStatusBarContainer");
-
-        Class status =
-            objc_getClass(
-                "_UIStatusBar");
-
-        SHAWrite(
-            [NSString stringWithFormat:
-                @"\n[RUNTIME CLASS CHECK]\n"
-                 "SBHomeGrabberRotationView : %@\n"
-                 "SBHomeGrabberView : %@\n"
-                 "SBMainDisplaySceneLayoutStatusBarView : %@\n"
-                 "SBStatusBarContainer : %@\n"
-                 "_UIStatusBar : %@\n",
-                homeRotation ? @"FOUND" : @"NOT FOUND",
-                home ? @"FOUND" : @"NOT FOUND",
-                statusMain ? @"FOUND" : @"NOT FOUND",
-                statusContainer ? @"FOUND" : @"NOT FOUND",
-                status ? @"FOUND" : @"NOT FOUND"
-            ]
-        );
-
-        /*
-         * Dump method list để biết chính xác class
-         * nào có API geometry/layout.
-         */
-        if (homeRotation) {
-            SHADumpClass(
-                homeRotation,
-                @"SBHomeGrabberRotationView");
-        }
-
-        if (home) {
-            SHADumpClass(
-                home,
-                @"SBHomeGrabberView");
-        }
-
-        if (statusMain) {
-            SHADumpClass(
-                statusMain,
-                @"SBMainDisplaySceneLayoutStatusBarView");
-        }
-
-        if (statusContainer) {
-            SHADumpClass(
-                statusContainer,
-                @"SBStatusBarContainer");
-        }
-
-        if (status) {
-            SHADumpClass(
-                status,
-                @"_UIStatusBar");
-        }
-
-        SHAWrite(
-            @"\n[+] Diagnostic loaded successfully.\n"
-        );
 
         %init;
     }
