@@ -1,7 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <CoreFoundation/CoreFoundation.h>
-#import <objc/runtime.h>
 
 static CGFloat SHAStatusDelta = 0.0;
 static CGFloat SHAHomeDelta = 0.0;
@@ -15,13 +14,13 @@ static void SHA_LoadPreferences(void)
 
     CFPreferencesAppSynchronize(domain);
 
-    CFPropertyListRef status =
+    CFPropertyListRef statusValue =
         CFPreferencesCopyAppValue(
             CFSTR("StatusBarOffset"),
             domain
         );
 
-    CFPropertyListRef home =
+    CFPropertyListRef homeValue =
         CFPreferencesCopyAppValue(
             CFSTR("HomeBarOffset"),
             domain
@@ -30,13 +29,13 @@ static void SHA_LoadPreferences(void)
     SHAStatusDelta = 0.0;
     SHAHomeDelta = 0.0;
 
-    if (status &&
-        CFGetTypeID(status) == CFNumberGetTypeID())
+    if (statusValue &&
+        CFGetTypeID(statusValue) == CFNumberGetTypeID())
     {
         double value = 0.0;
 
         CFNumberGetValue(
-            (CFNumberRef)status,
+            (CFNumberRef)statusValue,
             kCFNumberDoubleType,
             &value
         );
@@ -45,13 +44,13 @@ static void SHA_LoadPreferences(void)
             (CGFloat)MAX(-120.0, MIN(120.0, value));
     }
 
-    if (home &&
-        CFGetTypeID(home) == CFNumberGetTypeID())
+    if (homeValue &&
+        CFGetTypeID(homeValue) == CFNumberGetTypeID())
     {
         double value = 0.0;
 
         CFNumberGetValue(
-            (CFNumberRef)home,
+            (CFNumberRef)homeValue,
             kCFNumberDoubleType,
             &value
         );
@@ -60,11 +59,11 @@ static void SHA_LoadPreferences(void)
             (CGFloat)MAX(-120.0, MIN(120.0, value));
     }
 
-    if (status)
-        CFRelease(status);
+    if (statusValue)
+        CFRelease(statusValue);
 
-    if (home)
-        CFRelease(home);
+    if (homeValue)
+        CFRelease(homeValue);
 }
 
 #pragma mark - Portrait
@@ -84,14 +83,14 @@ static BOOL SHA_IsPortrait(void)
             if (![scene isKindOfClass:[UIWindowScene class]])
                 continue;
 
-            UIWindowScene *ws =
+            UIWindowScene *windowScene =
                 (UIWindowScene *)scene;
 
-            UIInterfaceOrientation o =
-                ws.interfaceOrientation;
+            UIInterfaceOrientation orientation =
+                windowScene.interfaceOrientation;
 
-            if (o == UIInterfaceOrientationPortrait ||
-                o == UIInterfaceOrientationPortraitUpsideDown)
+            if (orientation == UIInterfaceOrientationPortrait ||
+                orientation == UIInterfaceOrientationPortraitUpsideDown)
             {
                 return YES;
             }
@@ -101,116 +100,34 @@ static BOOL SHA_IsPortrait(void)
     return NO;
 }
 
-#pragma mark - Status Bar Height
+#pragma mark - Resize Bounds
 
-/*
- * KHÔNG scale icon.
- *
- * Thay đổi chiều cao layout của Status Bar.
- */
-
-%hook _UIStatusBar
-
-+ (double)heightForOrientation:(long long)orientation
-{
-    double original =
-        %orig;
-
-    SHA_LoadPreferences();
-
-    /*
-     * Chỉ Portrait.
-     */
-    if (orientation != 1 &&
-        orientation != 2)
-    {
-        return original;
-    }
-
-    double result =
-        original + SHAStatusDelta;
-
-    if (result < 1.0)
-        result = 1.0;
-
-    return result;
-}
-
-%end
-
-#pragma mark - Status Bar Modern Provider
-
-%hook _UIStatusBarVisualProvider_iOS
-
-- (double)statusBarHeight
-{
-    double original =
-        %orig;
-
-    SHA_LoadPreferences();
-
-    if (!SHA_IsPortrait())
-        return original;
-
-    double result =
-        original + SHAStatusDelta;
-
-    if (result < 1.0)
-        result = 1.0;
-
-    return result;
-}
-
-%end
-
-#pragma mark - Home Bar Visual Only
-
-/*
- * KHÔNG hook:
- *
- * SBHomeGrabberView
- *
- * KHÔNG thay frame của Home Grabber.
- *
- * KHÔNG thay safeAreaInsets.
- *
- * KHÔNG thay gesture.
- *
- * Chỉ xử lý visual pill.
- */
-
-static void SHA_ResizeHomeVisual(UIView *view)
+static void SHA_ResizeHeight(
+    UIView *view,
+    CGFloat delta
+)
 {
     if (!view)
         return;
 
-    if (!SHA_IsPortrait())
-        return;
-
-    if (SHAHomeDelta == 0.0)
+    if (delta == 0.0)
         return;
 
     CGRect bounds =
         view.bounds;
 
     CGFloat oldHeight =
-        bounds.size.height;
+        CGRectGetHeight(bounds);
 
     if (oldHeight <= 0.0)
         return;
 
-    /*
-     * Chiều cao mới theo đúng px.
-     */
     CGFloat newHeight =
-        oldHeight + SHAHomeDelta;
+        oldHeight + delta;
 
     if (newHeight < 1.0)
         newHeight = 1.0;
 
-    /*
-     * Giữ tâm visual.
-     */
     CGFloat centerY =
         CGRectGetMidY(bounds);
 
@@ -220,20 +137,13 @@ static void SHA_ResizeHomeVisual(UIView *view)
     bounds.origin.y =
         centerY - (newHeight / 2.0);
 
-    /*
-     * Chỉ thay bounds của visual.
-     *
-     * Không transform.
-     * Không thay frame.
-     * Không thay gesture.
-     */
     view.bounds =
         bounds;
 }
 
-#pragma mark - Home Pill
+#pragma mark - Status Bar
 
-%hook MTLumaDodgePillView
+%hook _UIStatusBar
 
 - (void)layoutSubviews
 {
@@ -241,14 +151,26 @@ static void SHA_ResizeHomeVisual(UIView *view)
 
     SHA_LoadPreferences();
 
-    SHA_ResizeHomeVisual(
-        (UIView *)self
+    if (!SHA_IsPortrait())
+        return;
+
+    if (SHAStatusDelta == 0.0)
+        return;
+
+    UIView *view =
+        (UIView *)self;
+
+    SHA_ResizeHeight(
+        view,
+        SHAStatusDelta
     );
 }
 
 %end
 
-%hook MTStaticColorPillView
+#pragma mark - SpringBoard Status Bar
+
+%hook SBMainDisplaySceneLayoutStatusBarView
 
 - (void)layoutSubviews
 {
@@ -256,7 +178,93 @@ static void SHA_ResizeHomeVisual(UIView *view)
 
     SHA_LoadPreferences();
 
-    SHA_ResizeHomeVisual(
+    if (!SHA_IsPortrait())
+        return;
+
+    if (SHAStatusDelta == 0.0)
+        return;
+
+    UIView *view =
+        (UIView *)self;
+
+    SHA_ResizeHeight(
+        view,
+        SHAStatusDelta
+    );
+}
+
+%end
+
+#pragma mark - Home Bar Visual
+
+static void SHA_FindHomeVisual(
+    UIView *root
+)
+{
+    if (!root)
+        return;
+
+    NSArray *children =
+        [[root subviews] copy];
+
+    for (UIView *child in children)
+    {
+        NSString *className =
+            NSStringFromClass([child class]);
+
+        if ([className isEqualToString:
+                @"MTLumaDodgePillView"] ||
+            [className isEqualToString:
+                @"MTStaticColorPillView"])
+        {
+            /*
+             * Không thay frame.
+             *
+             * Không thay transform.
+             *
+             * Không thay gesture.
+             *
+             * Chỉ thay bounds height của
+             * visual object.
+             */
+            SHA_ResizeHeight(
+                child,
+                SHAHomeDelta
+            );
+
+            continue;
+        }
+
+        /*
+         * Tìm sâu hơn.
+         */
+        SHA_FindHomeVisual(child);
+    }
+}
+
+#pragma mark - Home Bar Hook
+
+%hook UIWindow
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    if (!SHA_IsPortrait())
+        return;
+
+    if (SHAHomeDelta == 0.0)
+        return;
+
+    /*
+     * Chỉ tìm visual Home Bar.
+     *
+     * Không resize UIWindow.
+     * Không resize SBHomeGrabberView.
+     */
+    SHA_FindHomeVisual(
         (UIView *)self
     );
 }
@@ -278,9 +286,6 @@ static void SHA_SettingsChanged(
     dispatch_async(
         dispatch_get_main_queue(),
         ^{
-            /*
-             * Chỉ yêu cầu layout lại.
-             */
             UIApplication *app =
                 [UIApplication sharedApplication];
 
@@ -289,21 +294,19 @@ static void SHA_SettingsChanged(
 
             if (@available(iOS 13.0, *))
             {
-                for (UIScene *scene
-                     in app.connectedScenes)
+                for (UIScene *scene in app.connectedScenes)
                 {
-                    if (![scene
-                            isKindOfClass:
-                                [UIWindowScene class]])
+                    if (![scene isKindOfClass:
+                              [UIWindowScene class]])
                     {
                         continue;
                     }
 
-                    UIWindowScene *ws =
+                    UIWindowScene *windowScene =
                         (UIWindowScene *)scene;
 
                     for (UIWindow *window
-                         in ws.windows)
+                         in windowScene.windows)
                     {
                         [window setNeedsLayout];
                     }
