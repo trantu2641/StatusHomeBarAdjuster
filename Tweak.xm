@@ -2,10 +2,6 @@
 #import <Foundation/Foundation.h>
 #import <notify.h>
 
-
-#pragma mark -
-#pragma mark Constants
-
 static NSString * const SHA_PREFS_SUITE =
     @"com.congtu.statushomebaradjuster";
 
@@ -15,59 +11,36 @@ static NSString * const SHA_STATUS_KEY =
 static NSString * const SHA_HOME_KEY =
     @"HomeBarHeight";
 
-static const NSInteger SHA_MIN_VALUE = 0;
-static const NSInteger SHA_MAX_VALUE = 120;
-
-static const CGFloat SHA_DEFAULT_STATUS_HEIGHT = 30.0;
-static const CGFloat SHA_DEFAULT_HOME_HEIGHT = 30.0;
-
 static const char *SHA_SETTINGS_CHANGED =
     "com.congtu.statushomebaradjuster.settingsChanged";
 
-
-#pragma mark -
-#pragma mark Preferences
-
-static CGFloat SHAStatusBarHeight(void)
+static CGFloat SHAStatusHeight(void)
 {
     NSUserDefaults *defaults =
-        [[NSUserDefaults alloc]
-            initWithSuiteName:SHA_PREFS_SUITE];
+        [[NSUserDefaults alloc] initWithSuiteName:SHA_PREFS_SUITE];
 
     if (![defaults objectForKey:SHA_STATUS_KEY])
-        return SHA_DEFAULT_STATUS_HEIGHT;
+        return 30.0;
 
     NSInteger value =
         [defaults integerForKey:SHA_STATUS_KEY];
 
-    value = MAX(SHA_MIN_VALUE,
-                MIN(SHA_MAX_VALUE, value));
-
-    return (CGFloat)value;
+    return (CGFloat)MAX(0, MIN(120, value));
 }
 
-
-static CGFloat SHAHomeBarHeight(void)
+static CGFloat SHAHomeHeight(void)
 {
     NSUserDefaults *defaults =
-        [[NSUserDefaults alloc]
-            initWithSuiteName:SHA_PREFS_SUITE];
+        [[NSUserDefaults alloc] initWithSuiteName:SHA_PREFS_SUITE];
 
     if (![defaults objectForKey:SHA_HOME_KEY])
-        return SHA_DEFAULT_HOME_HEIGHT;
+        return 30.0;
 
     NSInteger value =
         [defaults integerForKey:SHA_HOME_KEY];
 
-    value = MAX(SHA_MIN_VALUE,
-                MIN(SHA_MAX_VALUE, value));
-
-    return (CGFloat)value;
+    return (CGFloat)MAX(0, MIN(120, value));
 }
-
-
-#pragma mark -
-#pragma mark Orientation
 
 static BOOL SHAIsPortrait(void)
 {
@@ -84,12 +57,6 @@ static BOOL SHAIsPortrait(void)
 
         UIWindowScene *windowScene =
             (UIWindowScene *)scene;
-
-        if (windowScene.activationState ==
-            UISceneActivationStateUnattached)
-        {
-            continue;
-        }
 
         UIInterfaceOrientation orientation =
             windowScene.interfaceOrientation;
@@ -117,27 +84,7 @@ static BOOL SHAIsPortrait(void)
 @interface UIApplicationSceneSettings : NSObject
 @end
 
-
-%group SHAUIKitSceneSettings
-
 %hook UIApplicationSceneSettings
-
-
-/*
- ============================================================
- STATUS BAR
- ============================================================
-
- Giá trị chính là HEIGHT.
-
- 0   = ẩn
- 30  = mặc định
- 60  = cao 60 px
- 90  = cao 90 px
- 120 = cao 120 px
-
- Không scale icon.
- */
 
 - (double)statusBarHeight
 {
@@ -146,19 +93,12 @@ static BOOL SHAIsPortrait(void)
     if (!SHAIsPortrait())
         return original;
 
-    return (double)SHAStatusBarHeight();
+    return SHAStatusHeight();
 }
 
-
-/*
- Một số phiên bản UIKit lấy chiều cao mặc định
- theo orientation.
- */
-
-- (double)defaultStatusBarHeightForOrientation:(long long)orientation
+- (double)defaultStatusBarHeightForOrientation:(NSInteger)orientation
 {
-    double original =
-        %orig(orientation);
+    double original = %orig(orientation);
 
     if (orientation != UIInterfaceOrientationPortrait &&
         orientation != UIInterfaceOrientationPortraitUpsideDown)
@@ -166,23 +106,8 @@ static BOOL SHAIsPortrait(void)
         return original;
     }
 
-    return (double)SHAStatusBarHeight();
+    return SHAStatusHeight();
 }
-
-
-/*
- ============================================================
- HOME BAR
- ============================================================
-
- 0   = vùng Home Bar gần như bằng 0
- 30  = mặc định
- 60  = cao 60 px
- 90  = cao 90 px
- 120 = cao 120 px
-
- BOTTOM được hệ thống giữ ở đáy.
- */
 
 - (double)homeAffordanceOverlayAllowance
 {
@@ -191,11 +116,8 @@ static BOOL SHAIsPortrait(void)
     if (!SHAIsPortrait())
         return original;
 
-    return (double)SHAHomeBarHeight();
+    return SHAHomeHeight();
 }
-
-
-%end
 
 %end
 
@@ -203,22 +125,15 @@ static BOOL SHAIsPortrait(void)
 #pragma mark -
 #pragma mark _UIStatusBar
 
-@interface _UIStatusBar : NSObject
-
-+ (double)heightForOrientation:(long long)orientation;
-
+@interface _UIStatusBar : UIView
++ (double)heightForOrientation:(NSInteger)orientation;
 @end
-
-
-%group SHAStatusBar
 
 %hook _UIStatusBar
 
-
-+ (double)heightForOrientation:(long long)orientation
++ (double)heightForOrientation:(NSInteger)orientation
 {
-    double original =
-        %orig(orientation);
+    double original = %orig(orientation);
 
     if (orientation != UIInterfaceOrientationPortrait &&
         orientation != UIInterfaceOrientationPortraitUpsideDown)
@@ -226,11 +141,8 @@ static BOOL SHAIsPortrait(void)
         return original;
     }
 
-    return (double)SHAStatusBarHeight();
+    return SHAStatusHeight();
 }
-
-
-%end
 
 %end
 
@@ -241,38 +153,14 @@ static BOOL SHAIsPortrait(void)
 @interface SBHomeGrabberView : UIView
 @end
 
-
-%group SHASpringBoard
-
 %hook SBHomeGrabberView
-
 
 - (void)layoutSubviews
 {
     %orig;
 
-    /*
-     * Landscape: hoàn toàn không làm gì.
-     */
-
     if (!SHAIsPortrait())
         return;
-
-
-    /*
-     * KHÔNG sửa:
-     *
-     * frame
-     * bounds
-     * center
-     * transform
-     * layer.transform
-     *
-     * của SBHomeGrabberView.
-     *
-     * Điều này tránh vòng lặp layout và black screen.
-     */
-
 
     UIView *pill = nil;
 
@@ -282,32 +170,90 @@ static BOOL SHAIsPortrait(void)
     }
     @catch (__unused NSException *exception)
     {
-        pill = nil;
+        return;
     }
-
 
     if (!pill)
         return;
 
-
     /*
-     * Chỉ xử lý trạng thái visual ở mức 0.
+     * Chỉ ẩn indicator khi Home Bar = 0.
      *
-     * Không thay đổi gesture.
+     * Không scale pill.
+     * Không sửa frame.
+     * Không sửa bounds.
+     * Không sửa transform.
+     * Không đụng gesture.
      */
-
-    if (SHAHomeBarHeight() <= 0.0)
-    {
-        pill.hidden = YES;
-    }
-    else
-    {
-        pill.hidden = NO;
-    }
+    pill.hidden = (SHAHomeHeight() <= 0.0);
 }
 
+%end
+
+
+#pragma mark -
+#pragma mark Safe Area
+
+%hook UIView
+
+- (UIEdgeInsets)safeAreaInsets
+{
+    UIEdgeInsets original = %orig;
+
+    if (!SHAIsPortrait())
+        return original;
+
+    /*
+     * Không can thiệp chính Home Grabber.
+     */
+    if ([self isKindOfClass:
+            NSClassFromString(@"SBHomeGrabberView")])
+    {
+        return original;
+    }
+
+    CGFloat homeHeight = SHAHomeHeight();
+
+    if (homeHeight <= 0.0)
+    {
+        original.bottom = 0.0;
+        return original;
+    }
+
+    if (original.bottom > 0.0)
+        original.bottom = homeHeight;
+
+    return original;
+}
 
 %end
+
+
+#pragma mark -
+#pragma mark UIWindow
+
+%hook UIWindow
+
+- (UIEdgeInsets)safeAreaInsets
+{
+    UIEdgeInsets original = %orig;
+
+    if (!SHAIsPortrait())
+        return original;
+
+    CGFloat homeHeight = SHAHomeHeight();
+
+    if (homeHeight <= 0.0)
+    {
+        original.bottom = 0.0;
+        return original;
+    }
+
+    if (original.bottom > 0.0)
+        original.bottom = homeHeight;
+
+    return original;
+}
 
 %end
 
@@ -326,13 +272,6 @@ static void SHARefreshUI(void)
             if (!application)
                 return;
 
-
-            /*
-             * Yêu cầu các window layout lại.
-             *
-             * Không tự sửa frame/bounds.
-             */
-
             for (UIScene *scene in application.connectedScenes)
             {
                 if (![scene isKindOfClass:[UIWindowScene class]])
@@ -345,20 +284,17 @@ static void SHARefreshUI(void)
                 {
                     [window setNeedsLayout];
                     [window setNeedsUpdateConstraints];
+
+                    [window.rootViewController
+                        viewSafeAreaInsetsDidChange];
                 }
             }
-
-
-            /*
-             * Yêu cầu Home Grabber layout lại.
-             */
 
             Class grabberClass =
                 NSClassFromString(@"SBHomeGrabberView");
 
             if (!grabberClass)
                 return;
-
 
             for (UIScene *scene in application.connectedScenes)
             {
@@ -368,28 +304,22 @@ static void SHARefreshUI(void)
                 UIWindowScene *windowScene =
                     (UIWindowScene *)scene;
 
-
                 for (UIWindow *window in windowScene.windows)
                 {
                     NSMutableArray *stack =
-                        [NSMutableArray array];
+                        [NSMutableArray arrayWithObject:window];
 
-                    [stack addObject:window];
-
-
-                    while (stack.count > 0)
+                    while (stack.count)
                     {
                         UIView *view =
                             [stack lastObject];
 
                         [stack removeLastObject];
 
-
                         if ([view isKindOfClass:grabberClass])
                         {
                             [view setNeedsLayout];
                         }
-
 
                         for (UIView *subview in view.subviews)
                         {
@@ -425,48 +355,21 @@ static void SHASettingsChanged(int token)
     if (!bundleIdentifier)
         return;
 
-
-    BOOL isSpringBoard =
-        [bundleIdentifier
-            isEqualToString:@"com.apple.springboard"];
-
-    BOOL isUIKit =
-        [bundleIdentifier
-            isEqualToString:@"com.apple.UIKit"];
-
-
     /*
-     * Không inject vào app thông thường.
+     * Tweak chỉ chạy trong SpringBoard.
+     *
+     * Đây là nơi chứa:
+     * _UIStatusBar
+     * UIApplicationSceneSettings
+     * SBHomeGrabberView
      */
-
-    if (!isSpringBoard && !isUIKit)
+    if (![bundleIdentifier
+            isEqualToString:@"com.apple.springboard"])
+    {
         return;
-
-
-    /*
-     * UIKit metrics.
-     */
-
-    if (isUIKit)
-    {
-        %init(SHAUIKitSceneSettings);
-        %init(SHAStatusBar);
     }
 
-
-    /*
-     * SpringBoard Home Bar.
-     */
-
-    if (isSpringBoard)
-    {
-        %init(SHASpringBoard);
-    }
-
-
-    /*
-     * Preferences notification.
-     */
+    %init;
 
     int token = 0;
 
