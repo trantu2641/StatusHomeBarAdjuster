@@ -2,145 +2,256 @@
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
 #import <notify.h>
-#import <objc/message.h>
 
-// ============================================================
-// StatusHomeBarAdjuster
-// RootHide / arm64e / iOS 16.x
-//
-// Design:
-//   Status Bar : height = 0...120 px, TOP moves, BOTTOM stays at 0.
-//   Home Bar   : height = 0...120 px, TOP moves, BOTTOM stays at screen bottom.
-//
-// The tweak deliberately does NOT resize/scale the status-bar icons or
-// the Home Indicator pill. It changes the system scene metrics that UIKit
-// uses for content avoidance, then only hides the Home Grabber visually at
-// exactly 0 px. Landscape is left completely untouched.
-// ============================================================
+#pragma mark -
+#pragma mark Constants
 
-static NSString * const kPrefsSuite = @"com.congtu.statushomebaradjuster";
-static NSString * const kStatusKey  = @"StatusBarHeight";
-static NSString * const kHomeKey    = @"HomeBarHeight";
-static NSString * const kChangedDarwin = @"com.congtu.statushomebaradjuster.settingsChanged";
+static NSString * const SHA_PREFS_SUITE =
+    @"com.congtu.statushomebaradjuster";
 
-static NSInteger SHAClamp(NSInteger value)
+static NSString * const SHA_STATUS_KEY =
+    @"StatusBarHeight";
+
+static NSString * const SHA_HOME_KEY =
+    @"HomeBarHeight";
+
+static NSString * const SHA_CHANGED_NOTIFICATION =
+    @"com.congtu.statushomebaradjuster.settingsChanged";
+
+
+#pragma mark -
+#pragma mark Helpers
+
+static CGFloat SHAClampHeight(NSInteger value)
 {
-    if (value < 0) return 0;
-    if (value > 120) return 120;
-    return value;
+    if (value < 0)
+        return 0.0;
+
+    if (value > 120)
+        return 120.0;
+
+    return (CGFloat)value;
 }
 
-static NSInteger SHAStatusHeight(void)
+
+static CGFloat SHAStatusBarHeight(void)
 {
-    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:kPrefsSuite];
-    NSInteger value = [defaults objectForKey:kStatusKey] ? [defaults integerForKey:kStatusKey] : 30;
-    return SHAClamp(value);
+    NSUserDefaults *defaults =
+        [[NSUserDefaults alloc] initWithSuiteName:SHA_PREFS_SUITE];
+
+    if (![defaults objectForKey:SHA_STATUS_KEY])
+        return 30.0;
+
+    return SHAClampHeight(
+        [defaults integerForKey:SHA_STATUS_KEY]
+    );
 }
 
-static NSInteger SHAHomeHeight(void)
+
+static CGFloat SHAHomeBarHeight(void)
 {
-    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:kPrefsSuite];
-    NSInteger value = [defaults objectForKey:kHomeKey] ? [defaults integerForKey:kHomeKey] : 30;
-    return SHAClamp(value);
+    NSUserDefaults *defaults =
+        [[NSUserDefaults alloc] initWithSuiteName:SHA_PREFS_SUITE];
+
+    if (![defaults objectForKey:SHA_HOME_KEY])
+        return 30.0;
+
+    return SHAClampHeight(
+        [defaults integerForKey:SHA_HOME_KEY]
+    );
 }
 
-static BOOL SHAPortrait(void)
-{
-    UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
 
-    UIApplication *app = [UIApplication sharedApplication];
-    if (app && app.connectedScenes.count > 0) {
-        for (UIScene *scene in app.connectedScenes) {
-            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-            UIWindowScene *windowScene = (UIWindowScene *)scene;
-            if (windowScene.activationState == UISceneActivationStateUnattached) continue;
-            orientation = windowScene.interfaceOrientation;
-            break;
+static BOOL SHAPortraitOrientation(void)
+{
+    UIApplication *application =
+        [UIApplication sharedApplication];
+
+    if (!application)
+        return YES;
+
+    for (UIScene *scene in application.connectedScenes)
+    {
+        if (![scene isKindOfClass:[UIWindowScene class]])
+            continue;
+
+        UIWindowScene *windowScene =
+            (UIWindowScene *)scene;
+
+        if (windowScene.activationState ==
+            UISceneActivationStateUnattached)
+        {
+            continue;
+        }
+
+        UIInterfaceOrientation orientation =
+            windowScene.interfaceOrientation;
+
+        if (orientation == UIInterfaceOrientationPortrait ||
+            orientation == UIInterfaceOrientationPortraitUpsideDown)
+        {
+            return YES;
+        }
+
+        if (orientation == UIInterfaceOrientationLandscapeLeft ||
+            orientation == UIInterfaceOrientationLandscapeRight)
+        {
+            return NO;
         }
     }
 
-    if (orientation == UIInterfaceOrientationUnknown) {
-        orientation = (UIInterfaceOrientation)[UIDevice currentDevice].orientation;
-    }
-
-    return orientation == UIInterfaceOrientationPortrait ||
-           orientation == UIInterfaceOrientationPortraitUpsideDown;
+    return YES;
 }
 
-// ------------------------------------------------------------
-// UIKit scene metrics
-// ------------------------------------------------------------
+
+#pragma mark -
+#pragma mark UIKit Scene Settings
+
+/*
+ *
+ *  iOS scene metrics
+ *
+ *  Status Bar:
+ *
+ *      TOP
+ *      ┌─────────────────────┐
+ *      │                     │
+ *      │       STATUS        │
+ *      │                     │
+ *      └─────────────────────┘
+ *             BOTTOM
+ *
+ *  BOTTOM remains the content boundary.
+ *  Increasing the height moves the boundary downward.
+ *
+ *
+ *  Home Bar:
+ *
+ *      ┌─────────────────────┐
+ *      │                     │
+ *      │       CONTENT       │
+ *      │                     │
+ *      ├─────────────────────┤ ← TOP
+ *      │      HOME BAR       │
+ *      │                     │
+ *      └─────────────────────┘ ← BOTTOM FIXED
+ *
+ *  Increasing Home Bar height moves TOP upward.
+ *
+ */
 
 @interface UIApplicationSceneSettings : NSObject
-- (double)homeAffordanceOverlayAllowance;
-- (double)statusBarHeight;
-- (double)defaultStatusBarHeightForOrientation:(long long)orientation;
-- (CGRect)statusBarAvoidanceFrame;
 @end
 
-%group SHAUISceneMetrics
+
+%group SHAUIKitSceneMetrics
 
 %hook UIApplicationSceneSettings
+
+
+/*
+ * Home Bar / Home Affordance height.
+ *
+ * 0 px   = content can reach the bottom
+ * 30 px  = normal reference
+ * 60 px  = 60 px reserved visual/content region
+ * 120 px = maximum
+ */
 
 - (double)homeAffordanceOverlayAllowance
 {
     double original = %orig;
 
-    if (!SHAPortrait())
+    if (!SHAPortraitOrientation())
         return original;
 
-    // This is the bottom visual/content allowance used by UIKit for the
-    // Home Affordance. Returning 0 means the app content can reach the
-    // physical bottom edge; 30 is the normal reference height.
-    return (double)SHAHomeHeight();
+    return (double)SHAHomeBarHeight();
 }
+
+
+/*
+ * Status Bar height.
+ */
 
 - (double)statusBarHeight
 {
     double original = %orig;
 
-    if (!SHAPortrait())
+    if (!SHAPortraitOrientation())
         return original;
 
-    return (double)SHAStatusHeight();
+    return (double)SHAStatusBarHeight();
 }
+
+
+/*
+ * Default Status Bar height for a particular orientation.
+ */
 
 - (double)defaultStatusBarHeightForOrientation:(long long)orientation
 {
-    double original = %orig(orientation);
+    double original =
+        %orig(orientation);
 
     if (orientation != UIInterfaceOrientationPortrait &&
         orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
         return original;
+    }
 
-    return (double)SHAStatusHeight();
+    return (double)SHAStatusBarHeight();
 }
+
+
+/*
+ * Status Bar avoidance frame.
+ *
+ * TOP remains at 0.
+ * BOTTOM changes according to the selected height.
+ */
 
 - (CGRect)statusBarAvoidanceFrame
 {
-    CGRect original = %orig;
+    CGRect frame = %orig;
 
-    if (!SHAPortrait())
-        return original;
+    if (!SHAPortraitOrientation())
+        return frame;
 
-    // Keep the top edge anchored. Only the height changes.
-    original.origin.y = 0.0;
-    original.size.height = (CGFloat)SHAStatusHeight();
-    return original;
+    frame.origin.y = 0.0;
+    frame.size.height = SHAStatusBarHeight();
+
+    return frame;
 }
 
 %end
 
 %end
 
-// ------------------------------------------------------------
-// _UIStatusBar: report the requested portrait height to UIKit.
-// This is a geometry metric hook, not a transform/frame mutation.
-// ------------------------------------------------------------
+
+#pragma mark -
+#pragma mark _UIStatusBar metric
+
+/*
+ * This hook changes the reported Status Bar height.
+ *
+ * IMPORTANT:
+ * We do NOT change:
+ *
+ *   - frame
+ *   - bounds
+ *   - transform
+ *   - layer.transform
+ *   - icon scale
+ *
+ * UIKit therefore gets the requested height as a layout metric.
+ */
 
 @interface _UIStatusBar : NSObject
+
 + (double)heightForOrientation:(long long)orientation;
+
 @end
+
 
 %group SHAStatusBarMetric
 
@@ -148,30 +259,43 @@ static BOOL SHAPortrait(void)
 
 + (double)heightForOrientation:(long long)orientation
 {
-    double original = %orig(orientation);
+    double original =
+        %orig(orientation);
 
     if (orientation != UIInterfaceOrientationPortrait &&
         orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
         return original;
+    }
 
-    return (double)SHAStatusHeight();
+    return (double)SHAStatusBarHeight();
 }
 
 %end
 
 %end
 
-// ------------------------------------------------------------
-// Home Grabber visual handling
-//
-// SBHomeGrabberView owns the MTLumaDodgePillView. We never change the
-// pill's bounds, transform, or gesture recognizer. At exactly 0 px the
-// visual grabber is hidden, which gives the requested "almost completely
-// hidden" state while leaving the system gesture machinery untouched.
-// ------------------------------------------------------------
+
+#pragma mark -
+#pragma mark Home Grabber
+
+/*
+ * We deliberately DO NOT modify the frame/bounds/transform of:
+ *
+ *   SBHomeGrabberView
+ *   MTLumaDodgePillView
+ *   MTStaticColorPillView
+ *
+ * This avoids the black-screen problem caused by directly resizing
+ * SpringBoard's Home Grabber hierarchy.
+ *
+ * At 0 px we only hide the visual pill.
+ * Gesture handling itself is untouched.
+ */
 
 @interface SBHomeGrabberView : UIView
 @end
+
 
 %group SHASpringBoard
 
@@ -181,99 +305,212 @@ static BOOL SHAPortrait(void)
 {
     %orig;
 
-    if (!SHAPortrait())
+    if (!SHAPortraitOrientation())
         return;
 
-    NSInteger height = SHAHomeHeight();
+    CGFloat height =
+        SHAHomeBarHeight();
 
-    // _pillView is a private ivar of SBHomeGrabberView on iPhone X-class
-    // devices. Access it only when it is actually present.
     UIView *pill = nil;
-    @try {
+
+    @try
+    {
         pill = [self valueForKey:@"_pillView"];
-    } @catch (__unused NSException *exception) {
+    }
+    @catch (__unused NSException *exception)
+    {
         pill = nil;
     }
 
     if (!pill)
         return;
 
-    // Do not resize or transform the pill.
-    // 0 px = visual Home Bar is effectively hidden.
-    pill.hidden = (height == 0);
+    /*
+     * Never resize the pill.
+     *
+     * Only hide it when Home Bar = 0.
+     */
 
-    // Keep the pill exactly where SpringBoard placed it for all non-zero
-    // values. The surrounding content metric changes independently.
+    if (height <= 0.0)
+    {
+        pill.hidden = YES;
+    }
+    else
+    {
+        pill.hidden = NO;
+    }
 }
 
 %end
 
 %end
 
-// ------------------------------------------------------------
-// Darwin preference-change notification.
-// We only request layout; we do not mutate frames or safe-area values here.
-// ------------------------------------------------------------
+
+#pragma mark -
+#pragma mark Settings Refresh
+
+static void SHARefreshWindows(void)
+{
+    dispatch_async(
+        dispatch_get_main_queue(),
+        ^
+        {
+            UIApplication *application =
+                [UIApplication sharedApplication];
+
+            if (!application)
+                return;
+
+            /*
+             * Force UIKit to recalculate layouts using the
+             * new scene metrics.
+             */
+
+            for (UIScene *scene in application.connectedScenes)
+            {
+                if (![scene isKindOfClass:[UIWindowScene class]])
+                    continue;
+
+                UIWindowScene *windowScene =
+                    (UIWindowScene *)scene;
+
+                for (UIWindow *window in windowScene.windows)
+                {
+                    [window setNeedsLayout];
+                    [window setNeedsUpdateConstraints];
+                }
+            }
+
+
+            /*
+             * Refresh Home Grabber visual state.
+             *
+             * No frame/bounds/transform modification.
+             */
+
+            Class grabberClass =
+                NSClassFromString(@"SBHomeGrabberView");
+
+            if (!grabberClass)
+                return;
+
+
+            for (UIScene *scene in application.connectedScenes)
+            {
+                if (![scene isKindOfClass:[UIWindowScene class]])
+                    continue;
+
+                UIWindowScene *windowScene =
+                    (UIWindowScene *)scene;
+
+                for (UIWindow *window in windowScene.windows)
+                {
+                    NSMutableArray *stack =
+                        [NSMutableArray array];
+
+                    [stack addObject:window];
+
+
+                    while (stack.count > 0)
+                    {
+                        UIView *view =
+                            [stack lastObject];
+
+                        [stack removeLastObject];
+
+
+                        if ([view isKindOfClass:grabberClass])
+                        {
+                            [view setNeedsLayout];
+                        }
+
+
+                        for (UIView *subview in view.subviews)
+                        {
+                            [stack addObject:subview];
+                        }
+                    }
+                }
+            }
+        }
+    );
+}
+
+
+#pragma mark -
+#pragma mark Darwin Notification
 
 static void SHASettingsChanged(int token)
 {
     (void)token;
 
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIApplication *app = [UIApplication sharedApplication];
-        for (UIScene *scene in app.connectedScenes) {
-            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
-            UIWindowScene *windowScene = (UIWindowScene *)scene;
-            for (UIWindow *window in windowScene.windows) {
-                [window setNeedsLayout];
-                [window setNeedsUpdateConstraints];
-            }
-        }
-
-        // Refresh the Home Grabber without touching its geometry.
-        Class grabberClass = NSClassFromString(@"SBHomeGrabberView");
-        if (grabberClass) {
-            for (UIWindow *window in UIApplication.sharedApplication.windows) {
-                NSMutableArray *stack = [NSMutableArray arrayWithObject:window];
-                while (stack.count) {
-                    UIView *view = stack.lastObject;
-                    [stack removeLastObject];
-                    if ([view isKindOfClass:grabberClass]) {
-                        [view setNeedsLayout];
-                    }
-                    for (UIView *subview in view.subviews)
-                        [stack addObject:subview];
-                }
-            }
-        }
-    });
+    SHARefreshWindows();
 }
+
+
+#pragma mark -
+#pragma mark Constructor
 
 %ctor
 {
-    NSString *bundleID = [NSBundle mainBundle].bundleIdentifier ?: @"";
+    NSString *bundleIdentifier =
+        [[NSBundle mainBundle] bundleIdentifier];
 
-    // UIKitCore and SpringBoard are the only processes that should receive
-    // these private metric hooks.
-    BOOL isUIKit = [bundleID isEqualToString:@"com.apple.UIKit"];
-    BOOL isSpringBoard = [bundleID isEqualToString:@"com.apple.springboard"];
-
-    if (!isUIKit && !isSpringBoard)
+    if (!bundleIdentifier)
         return;
 
-    if (isUIKit) {
-        %init(SHAUISceneMetrics);
+
+    BOOL isSpringBoard =
+        [bundleIdentifier
+            isEqualToString:@"com.apple.springboard"];
+
+    BOOL isUIKit =
+        [bundleIdentifier
+            isEqualToString:@"com.apple.UIKit"];
+
+
+    /*
+     * Only SpringBoard / UIKit-related processes.
+     */
+
+    if (!isSpringBoard && !isUIKit)
+        return;
+
+
+    /*
+     * UIKit scene metrics.
+     */
+
+    if (isUIKit)
+    {
+        %init(SHAUIKitSceneMetrics);
         %init(SHAStatusBarMetric);
     }
 
-    if (isSpringBoard) {
+
+    /*
+     * SpringBoard Home Grabber.
+     */
+
+    if (isSpringBoard)
+    {
         %init(SHASpringBoard);
     }
 
+
+    /*
+     * Listen for Preference changes.
+     */
+
     int token = 0;
-    notify_register_dispatch(kChangedDarwin.UTF8String, &token,
-                             dispatch_get_main_queue(),
-                             ^(int t) {
-        SHASettingsChanged(t);
-    });
+
+    notify_register_dispatch(
+        SHA_CHANGED_NOTIFICATION.UTF8String,
+        &token,
+        dispatch_get_main_queue(),
+        ^(int changedToken)
+        {
+            SHASettingsChanged(changedToken);
+        }
+    );
 }
