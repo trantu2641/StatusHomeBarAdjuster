@@ -1,423 +1,279 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <QuartzCore/QuartzCore.h>
-#import <objc/runtime.h>
 #import <notify.h>
-#import <math.h>
+#import <objc/message.h>
 
-#pragma mark - Preferences
+// ============================================================
+// StatusHomeBarAdjuster
+// RootHide / arm64e / iOS 16.x
+//
+// Design:
+//   Status Bar : height = 0...120 px, TOP moves, BOTTOM stays at 0.
+//   Home Bar   : height = 0...120 px, TOP moves, BOTTOM stays at screen bottom.
+//
+// The tweak deliberately does NOT resize/scale the status-bar icons or
+// the Home Indicator pill. It changes the system scene metrics that UIKit
+// uses for content avoidance, then only hides the Home Grabber visually at
+// exactly 0 px. Landscape is left completely untouched.
+// ============================================================
 
-static CGFloat SHAStatusDelta = 0.0;
-static CGFloat SHAHomeDelta = 0.0;
+static NSString * const kPrefsSuite = @"com.congtu.statushomebaradjuster";
+static NSString * const kStatusKey  = @"StatusBarHeight";
+static NSString * const kHomeKey    = @"HomeBarHeight";
+static NSString * const kChangedDarwin = @"com.congtu.statushomebaradjuster.settingsChanged";
 
-static const CGFloat SHA_MIN_DELTA = -120.0;
-static const CGFloat SHA_MAX_DELTA = 120.0;
-
-static void SHA_LoadPreferences(void)
+static NSInteger SHAClamp(NSInteger value)
 {
-    CFStringRef domain =
-        CFSTR("com.congtu.statushomebaradjuster");
+    if (value < 0) return 0;
+    if (value > 120) return 120;
+    return value;
+}
 
-    CFPreferencesAppSynchronize(domain);
+static NSInteger SHAStatusHeight(void)
+{
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:kPrefsSuite];
+    NSInteger value = [defaults objectForKey:kStatusKey] ? [defaults integerForKey:kStatusKey] : 30;
+    return SHAClamp(value);
+}
 
-    CFPropertyListRef statusValue =
-        CFPreferencesCopyAppValue(
-            CFSTR("StatusBarOffset"),
-            domain
-        );
+static NSInteger SHAHomeHeight(void)
+{
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:kPrefsSuite];
+    NSInteger value = [defaults objectForKey:kHomeKey] ? [defaults integerForKey:kHomeKey] : 30;
+    return SHAClamp(value);
+}
 
-    CFPropertyListRef homeValue =
-        CFPreferencesCopyAppValue(
-            CFSTR("HomeBarOffset"),
-            domain
-        );
+static BOOL SHAPortrait(void)
+{
+    UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
 
-    SHAStatusDelta = 0.0;
-    SHAHomeDelta = 0.0;
-
-    if (statusValue &&
-        CFGetTypeID(statusValue) == CFNumberGetTypeID())
-    {
-        double value = 0.0;
-
-        if (CFNumberGetValue(
-                (CFNumberRef)statusValue,
-                kCFNumberDoubleType,
-                &value))
-        {
-            SHAStatusDelta =
-                (CGFloat)MAX(
-                    SHA_MIN_DELTA,
-                    MIN(SHA_MAX_DELTA, value)
-                );
+    UIApplication *app = [UIApplication sharedApplication];
+    if (app && app.connectedScenes.count > 0) {
+        for (UIScene *scene in app.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            if (windowScene.activationState == UISceneActivationStateUnattached) continue;
+            orientation = windowScene.interfaceOrientation;
+            break;
         }
     }
 
-    if (homeValue &&
-        CFGetTypeID(homeValue) == CFNumberGetTypeID())
-    {
-        double value = 0.0;
-
-        if (CFNumberGetValue(
-                (CFNumberRef)homeValue,
-                kCFNumberDoubleType,
-                &value))
-        {
-            SHAHomeDelta =
-                (CGFloat)MAX(
-                    SHA_MIN_DELTA,
-                    MIN(SHA_MAX_DELTA, value)
-                );
-        }
+    if (orientation == UIInterfaceOrientationUnknown) {
+        orientation = (UIInterfaceOrientation)[UIDevice currentDevice].orientation;
     }
 
-    if (statusValue)
-        CFRelease(statusValue);
-
-    if (homeValue)
-        CFRelease(homeValue);
+    return orientation == UIInterfaceOrientationPortrait ||
+           orientation == UIInterfaceOrientationPortraitUpsideDown;
 }
 
-#pragma mark - Orientation
+// ------------------------------------------------------------
+// UIKit scene metrics
+// ------------------------------------------------------------
 
-static BOOL SHA_IsPortrait(UIView *view)
-{
-    if (!view)
-        return NO;
-
-    UIWindow *window = view.window;
-
-    if (!window)
-        return NO;
-
-    if (@available(iOS 13.0, *))
-    {
-        UIWindowScene *scene =
-            window.windowScene;
-
-        if (!scene)
-            return NO;
-
-        UIInterfaceOrientation orientation =
-            scene.interfaceOrientation;
-
-        return
-            orientation == UIInterfaceOrientationPortrait ||
-            orientation == UIInterfaceOrientationPortraitUpsideDown;
-    }
-
-    return NO;
-}
-
-#pragma mark - Home Bar
-
-@interface MTLumaDodgePillView : UIView
+@interface UIApplicationSceneSettings : NSObject
+- (double)homeAffordanceOverlayAllowance;
+- (double)statusBarHeight;
+- (double)defaultStatusBarHeightForOrientation:(long long)orientation;
+- (CGRect)statusBarAvoidanceFrame;
 @end
 
-@interface MTStaticColorPillView : UIView
-@end
+%group SHAUISceneMetrics
 
-/*
- * Tìm SBHomeGrabberView từ pill.
- *
- * Không thay frame/bounds của nó.
- * Chỉ dùng layer transform.
- */
-static UIView *SHA_FindHomeGrabber(UIView *pill)
+%hook UIApplicationSceneSettings
+
+- (double)homeAffordanceOverlayAllowance
 {
-    if (!pill)
-        return nil;
+    double original = %orig;
 
-    UIView *current =
-        pill.superview;
+    if (!SHAPortrait())
+        return original;
 
-    NSInteger depth = 0;
-
-    while (current && depth < 8)
-    {
-        NSString *className =
-            NSStringFromClass(
-                [current class]
-            );
-
-        if ([className isEqualToString:
-                @"SBHomeGrabberView"])
-        {
-            return current;
-        }
-
-        current =
-            current.superview;
-
-        depth++;
-    }
-
-    return nil;
+    // This is the bottom visual/content allowance used by UIKit for the
+    // Home Affordance. Returning 0 means the app content can reach the
+    // physical bottom edge; 30 is the normal reference height.
+    return (double)SHAHomeHeight();
 }
 
-static void SHA_ApplyHomeBar(UIView *grabber)
+- (double)statusBarHeight
 {
-    if (!grabber)
-        return;
+    double original = %orig;
 
-    if (!grabber.window)
-        return;
+    if (!SHAPortrait())
+        return original;
 
-    if (!SHA_IsPortrait(grabber))
-        return;
-
-    CGFloat delta =
-        SHAHomeDelta;
-
-    CALayer *layer =
-        grabber.layer;
-
-    if (!layer)
-        return;
-
-    /*
-     * Lấy kích thước visual hiện tại.
-     */
-    CGFloat height =
-        CGRectGetHeight(layer.bounds);
-
-    if (height <= 0.0)
-        return;
-
-    /*
-     * delta = 0:
-     * khôi phục transform nguyên bản.
-     */
-    if (fabs(delta) < 0.001)
-    {
-        [CATransaction begin];
-
-        [CATransaction setDisableActions:YES];
-
-        layer.transform =
-            CATransform3DIdentity;
-
-        [CATransaction commit];
-
-        return;
-    }
-
-    CGFloat targetHeight =
-        height + delta;
-
-    if (targetHeight < 1.0)
-        targetHeight = 1.0;
-
-    CGFloat scaleY =
-        targetHeight / height;
-
-    /*
-     * Chống giá trị bất thường.
-     */
-    if (scaleY < 0.10)
-        scaleY = 0.10;
-
-    if (scaleY > 8.0)
-        scaleY = 8.0;
-
-    /*
-     * QUAN TRỌNG:
-     *
-     * Không:
-     * - setFrame
-     * - setBounds
-     * - safeAreaInsets
-     * - gesture recognizer
-     *
-     * Chỉ thay rendering transform.
-     */
-    CATransform3D transform =
-        CATransform3DMakeScale(
-            1.0,
-            scaleY,
-            1.0
-        );
-
-    [CATransaction begin];
-
-    [CATransaction setDisableActions:YES];
-
-    layer.transform =
-        transform;
-
-    [CATransaction commit];
+    return (double)SHAStatusHeight();
 }
 
-%hook MTLumaDodgePillView
-
-- (void)didMoveToWindow
+- (double)defaultStatusBarHeightForOrientation:(long long)orientation
 {
-    %orig;
+    double original = %orig(orientation);
 
-    SHA_LoadPreferences();
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+        return original;
 
-    UIView *grabber =
-        SHA_FindHomeGrabber(
-            (UIView *)self
-        );
+    return (double)SHAStatusHeight();
+}
 
-    if (grabber)
-    {
-        SHA_ApplyHomeBar(
-            grabber
-        );
-    }
+- (CGRect)statusBarAvoidanceFrame
+{
+    CGRect original = %orig;
+
+    if (!SHAPortrait())
+        return original;
+
+    // Keep the top edge anchored. Only the height changes.
+    original.origin.y = 0.0;
+    original.size.height = (CGFloat)SHAStatusHeight();
+    return original;
 }
 
 %end
 
-%hook MTStaticColorPillView
-
-- (void)didMoveToWindow
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    UIView *grabber =
-        SHA_FindHomeGrabber(
-            (UIView *)self
-        );
-
-    if (grabber)
-    {
-        SHA_ApplyHomeBar(
-            grabber
-        );
-    }
-}
-
 %end
 
-#pragma mark - Status Bar
+// ------------------------------------------------------------
+// _UIStatusBar: report the requested portrait height to UIKit.
+// This is a geometry metric hook, not a transform/frame mutation.
+// ------------------------------------------------------------
 
-@interface _UIStatusBar : UIView
+@interface _UIStatusBar : NSObject
++ (double)heightForOrientation:(long long)orientation;
 @end
 
-/*
- * Chỉ scale visual layer.
- *
- * KHÔNG dùng layoutSubviews.
- */
-static void SHA_ApplyStatusBar(UIView *statusBar)
-{
-    if (!statusBar)
-        return;
-
-    if (!statusBar.window)
-        return;
-
-    if (!SHA_IsPortrait(statusBar))
-        return;
-
-    CALayer *layer =
-        statusBar.layer;
-
-    if (!layer)
-        return;
-
-    CGFloat height =
-        CGRectGetHeight(layer.bounds);
-
-    if (height <= 0.0)
-        return;
-
-    if (fabs(SHAStatusDelta) < 0.001)
-    {
-        [CATransaction begin];
-
-        [CATransaction setDisableActions:YES];
-
-        layer.transform =
-            CATransform3DIdentity;
-
-        [CATransaction commit];
-
-        return;
-    }
-
-    CGFloat targetHeight =
-        height + SHAStatusDelta;
-
-    if (targetHeight < 1.0)
-        targetHeight = 1.0;
-
-    CGFloat scaleY =
-        targetHeight / height;
-
-    if (scaleY < 0.10)
-        scaleY = 0.10;
-
-    if (scaleY > 8.0)
-        scaleY = 8.0;
-
-    CATransform3D transform =
-        CATransform3DMakeScale(
-            1.0,
-            scaleY,
-            1.0
-        );
-
-    [CATransaction begin];
-
-    [CATransaction setDisableActions:YES];
-
-    layer.transform =
-        transform;
-
-    [CATransaction commit];
-}
+%group SHAStatusBarMetric
 
 %hook _UIStatusBar
 
-- (void)didMoveToWindow
++ (double)heightForOrientation:(long long)orientation
 {
-    %orig;
+    double original = %orig(orientation);
 
-    SHA_LoadPreferences();
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+        return original;
 
-    SHA_ApplyStatusBar(
-        (UIView *)self
-    );
+    return (double)SHAStatusHeight();
 }
 
 %end
 
-#pragma mark - Settings
+%end
 
-static void SHA_SettingsChanged(
-    CFNotificationCenterRef center,
-    void *observer,
-    CFStringRef name,
-    const void *object,
-    CFDictionaryRef userInfo
-)
+// ------------------------------------------------------------
+// Home Grabber visual handling
+//
+// SBHomeGrabberView owns the MTLumaDodgePillView. We never change the
+// pill's bounds, transform, or gesture recognizer. At exactly 0 px the
+// visual grabber is hidden, which gives the requested "almost completely
+// hidden" state while leaving the system gesture machinery untouched.
+// ------------------------------------------------------------
+
+@interface SBHomeGrabberView : UIView
+@end
+
+%group SHASpringBoard
+
+%hook SBHomeGrabberView
+
+- (void)layoutSubviews
 {
-    SHA_LoadPreferences();
+    %orig;
+
+    if (!SHAPortrait())
+        return;
+
+    NSInteger height = SHAHomeHeight();
+
+    // _pillView is a private ivar of SBHomeGrabberView on iPhone X-class
+    // devices. Access it only when it is actually present.
+    UIView *pill = nil;
+    @try {
+        pill = [self valueForKey:@"_pillView"];
+    } @catch (__unused NSException *exception) {
+        pill = nil;
+    }
+
+    if (!pill)
+        return;
+
+    // Do not resize or transform the pill.
+    // 0 px = visual Home Bar is effectively hidden.
+    pill.hidden = (height == 0);
+
+    // Keep the pill exactly where SpringBoard placed it for all non-zero
+    // values. The surrounding content metric changes independently.
 }
 
-#pragma mark - Constructor
+%end
+
+%end
+
+// ------------------------------------------------------------
+// Darwin preference-change notification.
+// We only request layout; we do not mutate frames or safe-area values here.
+// ------------------------------------------------------------
+
+static void SHASettingsChanged(int token)
+{
+    (void)token;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIApplication *app = [UIApplication sharedApplication];
+        for (UIScene *scene in app.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            UIWindowScene *windowScene = (UIWindowScene *)scene;
+            for (UIWindow *window in windowScene.windows) {
+                [window setNeedsLayout];
+                [window setNeedsUpdateConstraints];
+            }
+        }
+
+        // Refresh the Home Grabber without touching its geometry.
+        Class grabberClass = NSClassFromString(@"SBHomeGrabberView");
+        if (grabberClass) {
+            for (UIWindow *window in UIApplication.sharedApplication.windows) {
+                NSMutableArray *stack = [NSMutableArray arrayWithObject:window];
+                while (stack.count) {
+                    UIView *view = stack.lastObject;
+                    [stack removeLastObject];
+                    if ([view isKindOfClass:grabberClass]) {
+                        [view setNeedsLayout];
+                    }
+                    for (UIView *subview in view.subviews)
+                        [stack addObject:subview];
+                }
+            }
+        }
+    });
+}
 
 %ctor
 {
-    @autoreleasepool
-    {
-        SHA_LoadPreferences();
+    NSString *bundleID = [NSBundle mainBundle].bundleIdentifier ?: @"";
 
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            NULL,
-            SHA_SettingsChanged,
-            CFSTR(
-                "com.congtu.statushomebaradjuster.settingsChanged"
-            ),
-            NULL,
-            CFNotificationSuspensionBehaviorDeliverImmediately
-        );
+    // UIKitCore and SpringBoard are the only processes that should receive
+    // these private metric hooks.
+    BOOL isUIKit = [bundleID isEqualToString:@"com.apple.UIKit"];
+    BOOL isSpringBoard = [bundleID isEqualToString:@"com.apple.springboard"];
+
+    if (!isUIKit && !isSpringBoard)
+        return;
+
+    if (isUIKit) {
+        %init(SHAUISceneMetrics);
+        %init(SHAStatusBarMetric);
     }
+
+    if (isSpringBoard) {
+        %init(SHASpringBoard);
+    }
+
+    int token = 0;
+    notify_register_dispatch(kChangedDarwin.UTF8String, &token,
+                             dispatch_get_main_queue(),
+                             ^(int t) {
+        SHASettingsChanged(t);
+    });
 }
