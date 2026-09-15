@@ -1,13 +1,29 @@
 #import "RootListController.h"
+
 #import <Preferences/Preferences.h>
 #import <Foundation/Foundation.h>
 #import <notify.h>
 
+static NSString * const SHA_PREFS_SUITE =
+    @"com.congtu.statushomebaradjuster";
+
+static NSString * const SHA_STATUS_KEY =
+    @"StatusBarHeight";
+
+static NSString * const SHA_HOME_KEY =
+    @"HomeBarHeight";
+
+static NSString * const SHA_CHANGED_NOTIFICATION =
+    @"com.congtu.statushomebaradjuster.settingsChanged";
+
+
 @implementation SHAStatusHomeBarAdjusterController
+
 
 - (NSArray *)specifiers
 {
-    if (!_specifiers) {
+    if (!_specifiers)
+    {
         _specifiers =
             [self loadSpecifiersFromPlistName:@"Root"
                                        target:self];
@@ -16,32 +32,49 @@
     return _specifiers;
 }
 
+
 - (void)applySettings
 {
     NSUserDefaults *defaults =
         [[NSUserDefaults alloc]
-            initWithSuiteName:@"com.congtu.statushomebaradjuster"];
+            initWithSuiteName:SHA_PREFS_SUITE];
+
 
     NSInteger status =
-        [defaults integerForKey:@"StatusBarOffset"];
+        [defaults integerForKey:SHA_STATUS_KEY];
 
     NSInteger home =
-        [defaults integerForKey:@"HomeBarOffset"];
+        [defaults integerForKey:SHA_HOME_KEY];
 
-    status = MAX(-120, MIN(120, status));
-    home = MAX(-120, MIN(120, home));
+
+    /*
+     * Clamp:
+     *
+     * 0 ... 120 px
+     */
+
+    status = MAX(0, MIN(120, status));
+    home   = MAX(0, MIN(120, home));
+
 
     [defaults setInteger:status
-                  forKey:@"StatusBarOffset"];
+                  forKey:SHA_STATUS_KEY];
 
     [defaults setInteger:home
-                  forKey:@"HomeBarOffset"];
+                  forKey:SHA_HOME_KEY];
+
 
     [defaults synchronize];
 
+
+    /*
+     * Tell SpringBoard/UIKit to refresh.
+     */
+
     notify_post(
-        "com.congtu.statushomebaradjuster.settingsChanged"
+        SHA_CHANGED_NOTIFICATION.UTF8String
     );
 }
+
 
 @end
