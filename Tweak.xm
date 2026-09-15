@@ -3,6 +3,7 @@
 #import <objc/message.h>
 #import <objc/runtime.h>
 #import <notify.h>
+#import <dispatch/dispatch.h>
 
 #pragma mark - Preferences
 
@@ -94,33 +95,23 @@ static BOOL SHA_IsPortraitForWindow(UIWindow *window)
     return NO;
 }
 
-#pragma mark - Class Name
-
-static BOOL SHA_ClassIs(
-    UIView *view,
-    NSString *name
-)
-{
-    if (!view || !name)
-        return NO;
-
-    return
-        [NSStringFromClass([view class])
-            isEqualToString:name];
-}
-
 #pragma mark - Home Bar
 
 /*
- * Trim bắt Home visual khi nó được
- * đưa vào UIWindow thông qua didMoveToWindow.
+ * Home Bar visual.
  *
- * Chúng ta giữ đúng điểm hook này.
+ * Giữ nguyên kiến trúc an toàn:
+ *
+ * - Không hook SBHomeGrabberView
+ * - Không thay safeAreaInsets
+ * - Không thay gesture recognizer
+ * - Không thay frame của gesture container
+ *
+ * Chỉ tác động visual layer của MTLumaDodgePillView /
+ * MTStaticColorPillView.
  */
 
-static void SHA_ApplyHomeVisual(
-    UIView *pill
-)
+static void SHA_ApplyHomeVisual(UIView *pill)
 {
     if (!pill)
         return;
@@ -134,23 +125,10 @@ static void SHA_ApplyHomeVisual(
     if (!SHA_IsPortraitForWindow(window))
         return;
 
-    if (SHAHomeDelta == 0.0)
-        return;
-
     /*
-     * KHÔNG thay:
-     *
-     * - SBHomeGrabberView.frame
-     * - SBHomeGrabberView.bounds
-     * - safeAreaInsets
-     * - gesture recognizer
-     *
-     * Thay đổi visual geometry của chính
-     * Home indicator thông qua layer bounds.
-     *
-     * Layer chỉ là rendering geometry,
-     * không thay đổi vùng touch của
-     * gesture container.
+     * Offset = 0:
+     * trả visual về kích thước gốc nếu trước đó
+     * tweak đã từng thay đổi nó.
      */
 
     CALayer *layer =
@@ -162,17 +140,11 @@ static void SHA_ApplyHomeVisual(
     CGRect bounds =
         layer.bounds;
 
-    CGFloat oldHeight =
+    CGFloat currentHeight =
         CGRectGetHeight(bounds);
 
-    if (oldHeight <= 0.0)
+    if (currentHeight <= 0.0)
         return;
-
-    /*
-     * Tránh cộng dồn.
-     *
-     * Lấy giá trị gốc được lưu trên layer.
-     */
 
     NSNumber *originalNumber =
         objc_getAssociatedObject(
@@ -190,7 +162,7 @@ static void SHA_ApplyHomeVisual(
     else
     {
         originalHeight =
-            oldHeight;
+            currentHeight;
 
         objc_setAssociatedObject(
             pill,
@@ -207,7 +179,7 @@ static void SHA_ApplyHomeVisual(
         newHeight = 1.0;
 
     /*
-     * Giữ cạnh dưới.
+     * Giữ cạnh dưới cố định.
      */
     CGFloat bottom =
         CGRectGetMaxY(bounds);
@@ -249,6 +221,17 @@ static void SHA_ApplyHomeVisual(
     );
 }
 
+- (void)layoutSubviews
+{
+    %orig;
+
+    SHA_LoadPreferences();
+
+    SHA_ApplyHomeVisual(
+        (UIView *)self
+    );
+}
+
 %end
 
 %hook MTStaticColorPillView
@@ -264,20 +247,6 @@ static void SHA_ApplyHomeVisual(
     );
 }
 
-%end
-
-#pragma mark - Reapply Home Visual
-
-/*
- * UIKit có thể layout lại visual sau
- * didMoveToWindow.
- *
- * Vì vậy chỉ gọi lại visual object,
- * không đụng parent container.
- */
-
-%hook MTLumaDodgePillView
-
 - (void)layoutSubviews
 {
     %orig;
@@ -291,55 +260,18 @@ static void SHA_ApplyHomeVisual(
 
 %end
 
-%hook MTStaticColorPillView
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    SHA_ApplyHomeVisual(
-        (UIView *)self
-    );
-}
-
-%end
-
-#pragma mark - Status Bar UIKit Window
+#pragma mark - Status Bar
 
 /*
- * Status Bar không dùng Home Grabber.
+ * Status Bar.
  *
- * Ở đây không đụng private SpringBoard
- * container nữa.
+ * Không sử dụng SHA_ClassIs.
+ * Không hook _UIStatusBar class method.
  *
- * Tìm system status visual trong UIWindow
- * và thay đổi bounds height.
+ * Chỉ xử lý instance layout.
  */
 
-static BOOL SHA_IsStatusVisual(
-    UIView *view
-)
-{
-    if (!view)
-        return NO;
-
-    NSString *name =
-        NSStringFromClass([view class]);
-
-    if ([name containsString:@"StatusBar"])
-        return YES;
-
-    if ([name containsString:@"statusBar"])
-        return YES;
-
-    return NO;
-}
-
-static void SHA_ResizeStatusVisual(
-    UIView *view
-)
+static void SHA_ResizeStatusVisual(UIView *view)
 {
     if (!view)
         return;
@@ -353,16 +285,19 @@ static void SHA_ResizeStatusVisual(
     if (!SHA_IsPortraitForWindow(window))
         return;
 
-    if (SHAStatusDelta == 0.0)
+    CALayer *layer =
+        view.layer;
+
+    if (!layer)
         return;
 
     CGRect bounds =
         view.bounds;
 
-    CGFloat height =
+    CGFloat currentHeight =
         CGRectGetHeight(bounds);
 
-    if (height <= 0.0)
+    if (currentHeight <= 0.0)
         return;
 
     NSNumber *originalNumber =
@@ -381,7 +316,7 @@ static void SHA_ResizeStatusVisual(
     else
     {
         originalHeight =
-            height;
+            currentHeight;
 
         objc_setAssociatedObject(
             view,
@@ -406,11 +341,20 @@ static void SHA_ResizeStatusVisual(
     bounds.origin.y =
         bottom - newHeight;
 
-    view.bounds =
+    [CATransaction begin];
+
+    [CATransaction setDisableActions:YES];
+
+    layer.bounds =
         bounds;
+
+    [CATransaction commit];
 }
 
-#pragma mark - Status Bar Views
+#pragma mark - UIKit Status Bar
+
+@interface _UIStatusBar : UIView
+@end
 
 %hook _UIStatusBar
 
@@ -442,11 +386,6 @@ static void SHA_SettingsChanged(
     dispatch_async(
         dispatch_get_main_queue(),
         ^{
-            /*
-             * Không force frame của system views.
-             *
-             * Chỉ yêu cầu UIKit layout lại.
-             */
             UIApplication *application =
                 [UIApplication sharedApplication];
 
