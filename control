@@ -1,6 +1,6 @@
 Package: com.congtu.statushomebaradjuster
 Name: StatusHomeBarAdjuster
-Version: 1.2.0
+Version: 1.2.1
 Architecture: iphoneos-arm64e
 Description: Adjust portrait Status Bar and Home Bar UI heights from 0 to 120 px while keeping the corresponding outer edge fixed.
 Maintainer: congtu
