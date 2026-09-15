@@ -4,6 +4,7 @@
 #import <Foundation/Foundation.h>
 #import <notify.h>
 
+
 static NSString * const SHA_PREFS_SUITE =
     @"com.congtu.statushomebaradjuster";
 
@@ -13,8 +14,8 @@ static NSString * const SHA_STATUS_KEY =
 static NSString * const SHA_HOME_KEY =
     @"HomeBarHeight";
 
-static NSString * const SHA_CHANGED_NOTIFICATION =
-    @"com.congtu.statushomebaradjuster.settingsChanged";
+static const char *SHA_SETTINGS_CHANGED =
+    "com.congtu.statushomebaradjuster.settingsChanged";
 
 
 @implementation SHAStatusHomeBarAdjusterController
@@ -48,9 +49,9 @@ static NSString * const SHA_CHANGED_NOTIFICATION =
 
 
     /*
-     * Clamp:
+     * Chỉ cho phép:
      *
-     * 0 ... 120 px
+     * 0 → 120
      */
 
     status = MAX(0, MIN(120, status));
@@ -68,12 +69,10 @@ static NSString * const SHA_CHANGED_NOTIFICATION =
 
 
     /*
-     * Tell SpringBoard/UIKit to refresh.
+     * Báo cho tweak refresh.
      */
 
-    notify_post(
-        SHA_CHANGED_NOTIFICATION.UTF8String
-    );
+    notify_post(SHA_SETTINGS_CHANGED);
 }
 
 
