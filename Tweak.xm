@@ -17,17 +17,6 @@ static NSString * const SHA_HOME_KEY =
 static const char *SHA_SETTINGS_CHANGED =
     "com.congtu.statushomebaradjuster.settingsChanged";
 
-static const CGFloat SHA_DEFAULT_HEIGHT = 30.0;
-static const CGFloat SHA_MIN_HEIGHT = 0.0;
-static const CGFloat SHA_MAX_HEIGHT = 120.0;
-
-
-static CGFloat SHAClamp(CGFloat value)
-{
-    return MAX(SHA_MIN_HEIGHT,
-               MIN(SHA_MAX_HEIGHT, value));
-}
-
 
 static CGFloat SHAStatusHeight(void)
 {
@@ -35,12 +24,17 @@ static CGFloat SHAStatusHeight(void)
         [[NSUserDefaults alloc]
             initWithSuiteName:SHA_PREFS_SUITE];
 
-    if (![defaults objectForKey:SHA_STATUS_KEY])
-        return SHA_DEFAULT_HEIGHT;
+    id value =
+        [defaults objectForKey:SHA_STATUS_KEY];
 
-    return SHAClamp(
-        (CGFloat)[defaults integerForKey:SHA_STATUS_KEY]
-    );
+    NSInteger result = 30;
+
+    if ([value respondsToSelector:@selector(integerValue)])
+        result = [value integerValue];
+
+    result = MAX(0, MIN(120, result));
+
+    return (CGFloat)result;
 }
 
 
@@ -50,25 +44,22 @@ static CGFloat SHAHomeHeight(void)
         [[NSUserDefaults alloc]
             initWithSuiteName:SHA_PREFS_SUITE];
 
-    if (![defaults objectForKey:SHA_HOME_KEY])
-        return SHA_DEFAULT_HEIGHT;
+    id value =
+        [defaults objectForKey:SHA_HOME_KEY];
 
-    return SHAClamp(
-        (CGFloat)[defaults integerForKey:SHA_HOME_KEY]
-    );
+    NSInteger result = 30;
+
+    if ([value respondsToSelector:@selector(integerValue)])
+        result = [value integerValue];
+
+    result = MAX(0, MIN(120, result));
+
+    return (CGFloat)result;
 }
 
 
 #pragma mark -
 #pragma mark Orientation
-
-static BOOL SHAIsPortraitOrientation(NSInteger orientation)
-{
-    return
-        orientation == UIInterfaceOrientationPortrait ||
-        orientation == UIInterfaceOrientationPortraitUpsideDown;
-}
-
 
 static BOOL SHAIsPortrait(void)
 {
@@ -89,8 +80,11 @@ static BOOL SHAIsPortrait(void)
         UIInterfaceOrientation orientation =
             windowScene.interfaceOrientation;
 
-        if (SHAIsPortraitOrientation(orientation))
+        if (orientation == UIInterfaceOrientationPortrait ||
+            orientation == UIInterfaceOrientationPortraitUpsideDown)
+        {
             return YES;
+        }
 
         if (orientation == UIInterfaceOrientationLandscapeLeft ||
             orientation == UIInterfaceOrientationLandscapeRight)
@@ -112,12 +106,11 @@ static BOOL SHAIsPortrait(void)
 
 %hook UIApplicationSceneSettings
 
-/*
- * Status Bar height.
- */
+
 - (double)statusBarHeight
 {
-    double original = %orig;
+    double original =
+        %orig;
 
     if (!SHAIsPortrait())
         return original;
@@ -126,45 +119,29 @@ static BOOL SHAIsPortrait(void)
 }
 
 
-/*
- * Default Status Bar height.
- */
 - (double)defaultStatusBarHeightForOrientation:
     (NSInteger)orientation
 {
     double original =
         %orig(orientation);
 
-    if (!SHAIsPortraitOrientation(orientation))
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
         return original;
+    }
 
     return SHAStatusHeight();
 }
 
 
-/*
- * Home Affordance height.
- */
-- (double)homeAffordanceOverlayAllowance
+- (UIEdgeInsets)safeAreaInsetsPortrait
 {
-    double original = %orig;
+    UIEdgeInsets original =
+        %orig;
 
     if (!SHAIsPortrait())
         return original;
-
-    return SHAHomeHeight();
-}
-
-
-/*
- * Đây mới là safe-area metric thực tế của SceneSettings.
- *
- * Top    = Status Bar
- * Bottom = Home Bar
- */
-- (UIEdgeInsets)safeAreaInsetsPortrait
-{
-    UIEdgeInsets original = %orig;
 
     original.top =
         SHAStatusHeight();
@@ -178,13 +155,12 @@ static BOOL SHAIsPortrait(void)
 
 - (UIEdgeInsets)safeAreaInsetsPortraitUpsideDown
 {
-    UIEdgeInsets original = %orig;
+    UIEdgeInsets original =
+        %orig;
 
-    /*
-     * Upside-down:
-     * Status Bar vẫn ở phía trên logical interface,
-     * Home Bar ở phía dưới.
-     */
+    if (!SHAIsPortrait())
+        return original;
+
     original.top =
         SHAStatusHeight();
 
@@ -195,26 +171,33 @@ static BOOL SHAIsPortrait(void)
 }
 
 
-#pragma mark Status Bar avoidance
-
-- (CGRect)statusBarAvoidanceFrame
+- (double)homeAffordanceOverlayAllowance
 {
-    CGRect original = %orig;
+    double original =
+        %orig;
 
     if (!SHAIsPortrait())
         return original;
 
-    /*
-     * Giữ nguyên X / Width.
-     *
-     * TOP cố định.
-     * BOTTOM thay đổi theo Status Bar Height.
-     */
+    return SHAHomeHeight();
+}
+
+
+- (CGRect)statusBarAvoidanceFrame
+{
+    CGRect original =
+        %orig;
+
+    if (!SHAIsPortrait())
+        return original;
+
     original.origin.y = 0.0;
-    original.size.height = SHAStatusHeight();
+    original.size.height =
+        SHAStatusHeight();
 
     return original;
 }
+
 
 %end
 
@@ -229,26 +212,22 @@ static BOOL SHAIsPortrait(void)
 %hook _UIStatusBar
 
 
-/*
- * iOS 16.x dùng class method này làm một trong
- * những nguồn height chính.
- */
 + (double)heightForOrientation:
     (NSInteger)orientation
 {
     double original =
         %orig(orientation);
 
-    if (!SHAIsPortraitOrientation(orientation))
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
         return original;
+    }
 
     return SHAStatusHeight();
 }
 
 
-/*
- * Actual intrinsic size API trên runtime của máy.
- */
 + (CGSize)intrinsicContentSizeForTargetScreen:
     (UIScreen *)screen
     orientation:(NSInteger)orientation
@@ -259,8 +238,11 @@ static BOOL SHAIsPortrait(void)
               orientation,
               lockScreen);
 
-    if (!SHAIsPortraitOrientation(orientation))
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
         return original;
+    }
 
     original.height =
         SHAStatusHeight();
@@ -273,16 +255,19 @@ static BOOL SHAIsPortrait(void)
     (UIScreen *)screen
     orientation:(NSInteger)orientation
     onLockScreen:(BOOL)lockScreen
-    isAzulBLinked:(BOOL)azulBLinked
+    isAzulBLinked:(BOOL)linked
 {
     CGSize original =
         %orig(screen,
               orientation,
               lockScreen,
-              azulBLinked);
+              linked);
 
-    if (!SHAIsPortraitOrientation(orientation))
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
         return original;
+    }
 
     original.height =
         SHAStatusHeight();
@@ -322,8 +307,11 @@ static BOOL SHAIsPortrait(void)
     CGSize original =
         %orig(orientation);
 
-    if (!SHAIsPortraitOrientation(orientation))
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
         return original;
+    }
 
     original.height =
         SHAStatusHeight();
@@ -331,8 +319,12 @@ static BOOL SHAIsPortrait(void)
     return original;
 }
 
+
 %end
 
+
+#pragma mark -
+#pragma mark Status Bar Split Provider
 
 @interface _UIStatusBarVisualProvider_Split : NSObject
 @end
@@ -359,14 +351,18 @@ static BOOL SHAIsPortrait(void)
     CGSize original =
         %orig(orientation);
 
-    if (!SHAIsPortraitOrientation(orientation))
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
         return original;
+    }
 
     original.height =
         SHAStatusHeight();
 
     return original;
 }
+
 
 %end
 
@@ -382,24 +378,12 @@ static BOOL SHAIsPortrait(void)
 - (CGSize)suggestedSizeForContentWidth:
     (CGFloat)width;
 
-- (CGRect)_calculatePillFrame;
-
 @end
 
 
 %hook SBHomeGrabberView
 
 
-/*
- * ĐÂY LÀ HOOK QUAN TRỌNG NHẤT CHO HOME BAR.
- *
- * Không sửa self.frame.
- * Không sửa self.bounds.
- * Không dùng transform.
- *
- * Ta thay geometry được SBHomeGrabberView
- * tự tính ra.
- */
 - (CGRect)grabberFrameForBounds:
     (CGRect)bounds
 {
@@ -409,26 +393,19 @@ static BOOL SHAIsPortrait(void)
     if (!SHAIsPortrait())
         return original;
 
-    CGFloat requestedHeight =
+    CGFloat height =
         SHAHomeHeight();
 
-
     /*
-     * Giữ nguyên chiều rộng.
-     *
-     * Bottom của Home Bar phải cố định
-     * tại đáy bounds.
+     * Home Bar bottom luôn cố định.
      */
     CGFloat bottom =
         CGRectGetMaxY(bounds);
 
-
     /*
-     * Nếu 0 px:
-     * trả vùng có height = 0,
-     * không đụng gesture recognizer.
+     * 0 = collapse.
      */
-    if (requestedHeight <= 0.0)
+    if (height <= 0.0)
     {
         original.origin.y =
             bottom;
@@ -439,32 +416,20 @@ static BOOL SHAIsPortrait(void)
         return original;
     }
 
-
     /*
-     * Home Bar cao đúng giá trị yêu cầu.
-     *
-     * TOP thay đổi.
-     * BOTTOM cố định.
+     * Top thay đổi.
+     * Bottom cố định.
      */
     original.origin.y =
-        bottom - requestedHeight;
+        bottom - height;
 
     original.size.height =
-        requestedHeight;
-
+        height;
 
     return original;
 }
 
 
-/*
- * suggestedSizeForContentWidth:
- *
- * Đây là metric phụ của Grabber.
- *
- * Không thay đổi width.
- * Chỉ thay đổi height trong portrait.
- */
 - (CGSize)suggestedSizeForContentWidth:
     (CGFloat)width
 {
@@ -474,46 +439,27 @@ static BOOL SHAIsPortrait(void)
     if (!SHAIsPortrait())
         return original;
 
-    CGFloat requestedHeight =
+    original.height =
         SHAHomeHeight();
 
-    if (requestedHeight <= 0.0)
-    {
-        original.height = 0.0;
-        return original;
-    }
-
-    original.height =
-        requestedHeight;
-
     return original;
 }
 
 
-/*
- * Đây là method mà SBHomeGrabberView dùng
- * để tính pill.
- *
- * KHÔNG scale pill.
- *
- * Chỉ bảo đảm khi Home Bar = 0 thì
- * indicator không còn hiển thị.
- */
-- (CGRect)_calculatePillFrame
-{
-    CGRect original =
-        %orig;
+%end
 
-    if (!SHAIsPortrait())
-        return original;
 
-    if (SHAHomeHeight() <= 0.0)
-    {
-        original.size.height = 0.0;
-    }
+#pragma mark -
+#pragma mark Home Grabber Rotation Wrapper
 
-    return original;
-}
+@interface SBHomeGrabberRotationView : UIView
+
+- (UIView *)grabberView;
+
+@end
+
+
+%hook SBHomeGrabberRotationView
 
 
 - (void)layoutSubviews
@@ -523,32 +469,64 @@ static BOOL SHAIsPortrait(void)
     if (!SHAIsPortrait())
         return;
 
-    UIView *pill = nil;
 
-    @try
-    {
-        pill =
-            [self valueForKey:@"_pillView"];
-    }
-    @catch (__unused NSException *exception)
-    {
-        pill = nil;
-    }
+    UIView *grabber =
+        [self grabberView];
 
-    if (!pill)
+    if (!grabber)
         return;
 
+
+    CGFloat requested =
+        SHAHomeHeight();
+
+
     /*
-     * Chỉ xử lý trạng thái 0.
-     *
-     * Không scale.
-     * Không đổi frame.
-     * Không đổi bounds.
-     * Không đổi transform.
+     * Lấy geometry mà wrapper vừa layout.
      */
-    pill.hidden =
-        (SHAHomeHeight() <= 0.0);
+    CGRect frame =
+        grabber.frame;
+
+
+    /*
+     * Không đổi X.
+     * Không đổi Width.
+     *
+     * Bottom cố định theo wrapper.
+     */
+    CGFloat bottom =
+        CGRectGetMaxY(self.bounds);
+
+
+    if (requested <= 0.0)
+    {
+        frame.origin.y =
+            bottom;
+
+        frame.size.height =
+            0.0;
+    }
+    else
+    {
+        frame.origin.y =
+            bottom - requested;
+
+        frame.size.height =
+            requested;
+    }
+
+
+    /*
+     * Chỉ chỉnh geometry của grabber
+     * sau khi wrapper đã hoàn tất layout.
+     *
+     * Không transform.
+     * Không layer transform.
+     */
+    grabber.frame =
+        frame;
 }
+
 
 %end
 
@@ -569,7 +547,7 @@ static void SHARefreshUI(void)
 
 
             /*
-             * Force Scene layout.
+             * Force scene metrics/layout.
              */
             for (UIScene *scene in
                  application.connectedScenes)
@@ -588,34 +566,20 @@ static void SHARefreshUI(void)
                      windowScene.windows)
                 {
                     [window setNeedsLayout];
-
                     [window setNeedsUpdateConstraints];
-
-
-                    UIViewController *root =
-                        window.rootViewController;
-
-                    if (root)
-                    {
-                        [root
-                            viewSafeAreaInsetsDidChange];
-
-                        [root
-                            viewWillLayoutSubviews];
-                    }
                 }
             }
 
 
             /*
-             * Force Home Grabber layout.
+             * Home Grabber rotation views.
              */
-            Class grabberClass =
+            Class rotationClass =
                 NSClassFromString(
-                    @"SBHomeGrabberView"
+                    @"SBHomeGrabberRotationView"
                 );
 
-            if (!grabberClass)
+            if (!rotationClass)
                 return;
 
 
@@ -640,7 +604,7 @@ static void SHARefreshUI(void)
                             arrayWithObject:window];
 
 
-                    while (stack.count > 0)
+                    while (stack.count)
                     {
                         UIView *view =
                             stack.lastObject;
@@ -649,7 +613,7 @@ static void SHARefreshUI(void)
 
 
                         if ([view isKindOfClass:
-                                grabberClass])
+                                rotationClass])
                         {
                             [view setNeedsLayout];
                         }
@@ -696,10 +660,6 @@ static void SHASettingsChanged(int token)
     }
 
 
-    /*
-     * Tất cả class cần thiết đều đã được
-     * xác nhận tồn tại trong runtime dump.
-     */
     %init;
 
 
