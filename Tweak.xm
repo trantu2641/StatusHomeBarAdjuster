@@ -1,6 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <CoreFoundation/CoreFoundation.h>
+#import <objc/runtime.h>
+#import <notify.h>
 
 #pragma mark - Preferences
 
