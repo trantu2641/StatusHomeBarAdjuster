@@ -1,9 +1,7 @@
 #import "RootListController.h"
-
 #import <Preferences/Preferences.h>
 #import <Foundation/Foundation.h>
 #import <notify.h>
-
 
 static NSString * const SHA_PREFS_SUITE =
     @"com.congtu.statushomebaradjuster";
@@ -18,8 +16,26 @@ static const char *SHA_SETTINGS_CHANGED =
     "com.congtu.statushomebaradjuster.settingsChanged";
 
 
-@implementation SHAStatusHomeBarAdjusterController
+static NSInteger SHAReadValue(NSUserDefaults *defaults,
+                              NSString *key)
+{
+    id value = [defaults objectForKey:key];
 
+    if ([value isKindOfClass:[NSNumber class]])
+    {
+        return [value integerValue];
+    }
+
+    if ([value isKindOfClass:[NSString class]])
+    {
+        return [(NSString *)value integerValue];
+    }
+
+    return 30;
+}
+
+
+@implementation SHAStatusHomeBarAdjusterController
 
 - (NSArray *)specifiers
 {
@@ -42,38 +58,34 @@ static const char *SHA_SETTINGS_CHANGED =
 
 
     NSInteger status =
-        [defaults integerForKey:SHA_STATUS_KEY];
+        SHAReadValue(defaults, SHA_STATUS_KEY);
 
     NSInteger home =
-        [defaults integerForKey:SHA_HOME_KEY];
+        SHAReadValue(defaults, SHA_HOME_KEY);
+
+
+    status =
+        MAX(0, MIN(120, status));
+
+    home =
+        MAX(0, MIN(120, home));
 
 
     /*
-     * Chỉ cho phép:
-     *
-     * 0 → 120
+     * Lưu dưới dạng NSNumber.
+     * Từ đây Tweak đọc integerForKey:
+     * sẽ luôn nhận đúng giá trị.
      */
+    [defaults setObject:@(status)
+                 forKey:SHA_STATUS_KEY];
 
-    status = MAX(0, MIN(120, status));
-    home   = MAX(0, MIN(120, home));
-
-
-    [defaults setInteger:status
-                  forKey:SHA_STATUS_KEY];
-
-    [defaults setInteger:home
-                  forKey:SHA_HOME_KEY];
-
+    [defaults setObject:@(home)
+                 forKey:SHA_HOME_KEY];
 
     [defaults synchronize];
 
 
-    /*
-     * Báo cho tweak refresh.
-     */
-
     notify_post(SHA_SETTINGS_CHANGED);
 }
-
 
 @end
