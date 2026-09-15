@@ -1,385 +1,289 @@
-#import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <notify.h>
+#import <objc/runtime.h>
 
-static NSString * const SHA_PREFS_SUITE =
-    @"com.congtu.statushomebaradjuster";
-
-static NSString * const SHA_STATUS_KEY =
-    @"StatusBarHeight";
-
-static NSString * const SHA_HOME_KEY =
-    @"HomeBarHeight";
-
-static const char *SHA_SETTINGS_CHANGED =
-    "com.congtu.statushomebaradjuster.settingsChanged";
-
-static CGFloat SHAStatusHeight(void)
+static void SHADumpClass(Class cls, NSMutableString *output)
 {
-    NSUserDefaults *defaults =
-        [[NSUserDefaults alloc] initWithSuiteName:SHA_PREFS_SUITE];
+    if (!cls)
+        return;
 
-    if (![defaults objectForKey:SHA_STATUS_KEY])
-        return 30.0;
+    const char *className = class_getName(cls);
 
-    NSInteger value =
-        [defaults integerForKey:SHA_STATUS_KEY];
+    [output appendFormat:
+        @"\n==================================================\n"
+         @"CLASS: %s\n"
+         @"==================================================\n",
+         className];
 
-    return (CGFloat)MAX(0, MIN(120, value));
-}
 
-static CGFloat SHAHomeHeight(void)
-{
-    NSUserDefaults *defaults =
-        [[NSUserDefaults alloc] initWithSuiteName:SHA_PREFS_SUITE];
+    /*
+     * Instance methods
+     */
+    unsigned int count = 0;
 
-    if (![defaults objectForKey:SHA_HOME_KEY])
-        return 30.0;
+    Method *methods =
+        class_copyMethodList(cls, &count);
 
-    NSInteger value =
-        [defaults integerForKey:SHA_HOME_KEY];
+    [output appendFormat:
+        @"\n-- INSTANCE METHODS (%u) --\n",
+        count];
 
-    return (CGFloat)MAX(0, MIN(120, value));
-}
-
-static BOOL SHAIsPortrait(void)
-{
-    UIApplication *application =
-        [UIApplication sharedApplication];
-
-    if (!application)
-        return YES;
-
-    for (UIScene *scene in application.connectedScenes)
+    for (unsigned int i = 0; i < count; i++)
     {
-        if (![scene isKindOfClass:[UIWindowScene class]])
+        Method method = methods[i];
+
+        SEL selector =
+            method_getName(method);
+
+        const char *types =
+            method_getTypeEncoding(method);
+
+        [output appendFormat:
+            @"- %s    [%s]\n",
+            sel_getName(selector),
+            types ? types : ""];
+    }
+
+    if (methods)
+        free(methods);
+
+
+    /*
+     * Class methods
+     */
+    Class metaClass =
+        object_getClass(cls);
+
+    count = 0;
+
+    Method *classMethods =
+        class_copyMethodList(metaClass, &count);
+
+    [output appendFormat:
+        @"\n-- CLASS METHODS (%u) --\n",
+        count];
+
+    for (unsigned int i = 0; i < count; i++)
+    {
+        Method method = classMethods[i];
+
+        SEL selector =
+            method_getName(method);
+
+        const char *types =
+            method_getTypeEncoding(method);
+
+        [output appendFormat:
+            @"+ %s    [%s]\n",
+            sel_getName(selector),
+            types ? types : ""];
+    }
+
+    if (classMethods)
+        free(classMethods);
+
+
+    /*
+     * Superclass chain
+     */
+    [output appendString:@"\n-- SUPERCLASS CHAIN --\n"];
+
+    Class superClass =
+        class_getSuperclass(cls);
+
+    while (superClass)
+    {
+        [output appendFormat:
+            @"  -> %s\n",
+            class_getName(superClass)];
+
+        superClass =
+            class_getSuperclass(superClass);
+    }
+}
+
+
+static void SHADumpRuntime(void)
+{
+    NSMutableString *output =
+        [NSMutableString string];
+
+
+    [output appendString:
+        @"STATUS HOME BAR ADJUSTER\n"
+         @"iOS Objective-C Runtime Diagnostic\n\n"];
+
+
+    [output appendString:
+        @"This file was generated directly inside SpringBoard.\n\n"];
+
+
+    /*
+     * Find every loaded class containing:
+     *
+     * HomeGrabber
+     * HomeBar
+     * Grabber
+     * StatusBar
+     */
+    unsigned int classCount = 0;
+
+    Class *classes =
+        objc_copyClassList(&classCount);
+
+
+    [output appendFormat:
+        @"TOTAL LOADED CLASSES: %u\n\n",
+        classCount];
+
+
+    [output appendString:
+        @"==================================================\n"
+         @"MATCHING CLASSES\n"
+         @"==================================================\n\n"];
+
+
+    for (unsigned int i = 0; i < classCount; i++)
+    {
+        Class cls = classes[i];
+
+        const char *name =
+            class_getName(cls);
+
+        if (!name)
             continue;
 
-        UIWindowScene *windowScene =
-            (UIWindowScene *)scene;
 
-        UIInterfaceOrientation orientation =
-            windowScene.interfaceOrientation;
+        NSString *className =
+            [NSString stringWithUTF8String:name];
 
-        if (orientation == UIInterfaceOrientationPortrait ||
-            orientation == UIInterfaceOrientationPortraitUpsideDown)
+        if ([className rangeOfString:
+                @"HomeGrabber"
+                options:NSCaseInsensitiveSearch].location != NSNotFound ||
+
+            [className rangeOfString:
+                @"HomeBar"
+                options:NSCaseInsensitiveSearch].location != NSNotFound ||
+
+            [className rangeOfString:
+                @"Grabber"
+                options:NSCaseInsensitiveSearch].location != NSNotFound ||
+
+            [className rangeOfString:
+                @"StatusBar"
+                options:NSCaseInsensitiveSearch].location != NSNotFound)
         {
-            return YES;
-        }
-
-        if (orientation == UIInterfaceOrientationLandscapeLeft ||
-            orientation == UIInterfaceOrientationLandscapeRight)
-        {
-            return NO;
+            [output appendFormat:
+                @"FOUND: %s\n",
+                name];
         }
     }
 
-    return YES;
-}
-
-
-#pragma mark -
-#pragma mark UIApplicationSceneSettings
-
-@interface UIApplicationSceneSettings : NSObject
-@end
-
-%hook UIApplicationSceneSettings
-
-- (double)statusBarHeight
-{
-    double original = %orig;
-
-    if (!SHAIsPortrait())
-        return original;
-
-    return SHAStatusHeight();
-}
-
-- (double)defaultStatusBarHeightForOrientation:(NSInteger)orientation
-{
-    double original = %orig(orientation);
-
-    if (orientation != UIInterfaceOrientationPortrait &&
-        orientation != UIInterfaceOrientationPortraitUpsideDown)
-    {
-        return original;
-    }
-
-    return SHAStatusHeight();
-}
-
-- (double)homeAffordanceOverlayAllowance
-{
-    double original = %orig;
-
-    if (!SHAIsPortrait())
-        return original;
-
-    return SHAHomeHeight();
-}
-
-%end
-
-
-#pragma mark -
-#pragma mark _UIStatusBar
-
-@interface _UIStatusBar : UIView
-+ (double)heightForOrientation:(NSInteger)orientation;
-@end
-
-%hook _UIStatusBar
-
-+ (double)heightForOrientation:(NSInteger)orientation
-{
-    double original = %orig(orientation);
-
-    if (orientation != UIInterfaceOrientationPortrait &&
-        orientation != UIInterfaceOrientationPortraitUpsideDown)
-    {
-        return original;
-    }
-
-    return SHAStatusHeight();
-}
-
-%end
-
-
-#pragma mark -
-#pragma mark Home Bar
-
-@interface SBHomeGrabberView : UIView
-@end
-
-%hook SBHomeGrabberView
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    if (!SHAIsPortrait())
-        return;
-
-    UIView *pill = nil;
-
-    @try
-    {
-        pill = [self valueForKey:@"_pillView"];
-    }
-    @catch (__unused NSException *exception)
-    {
-        return;
-    }
-
-    if (!pill)
-        return;
 
     /*
-     * Chỉ ẩn indicator khi Home Bar = 0.
-     *
-     * Không scale pill.
-     * Không sửa frame.
-     * Không sửa bounds.
-     * Không sửa transform.
-     * Không đụng gesture.
+     * Explicit important classes.
      */
-    pill.hidden = (SHAHomeHeight() <= 0.0);
-}
+    const char *importantClasses[] =
+    {
+        "SBHomeGrabberView",
+        "SBHomeGrabberRotationView",
+        "SBHomeGrabberRevealGesturesManager",
+        "SBHomeGrabberSettings",
+        "_UIStatusBar",
+        "_UIStatusBarVisualProvider_iOS",
+        "_UIStatusBarVisualProvider_Split",
+        "UIApplicationSceneSettings"
+    };
 
-%end
+
+    [output appendString:
+        @"\n\n==================================================\n"
+         @"IMPORTANT CLASSES\n"
+         @"==================================================\n"];
 
 
-#pragma mark -
-#pragma mark Safe Area
+    for (NSUInteger i = 0;
+         i < sizeof(importantClasses) / sizeof(importantClasses[0]);
+         i++)
+    {
+        const char *name =
+            importantClasses[i];
 
-%hook UIView
+        Class cls =
+            objc_getClass(name);
 
-- (UIEdgeInsets)safeAreaInsets
-{
-    UIEdgeInsets original = %orig;
+        if (cls)
+        {
+            SHADumpClass(cls, output);
+        }
+        else
+        {
+            [output appendFormat:
+                @"\nCLASS NOT LOADED: %s\n",
+                name];
+        }
+    }
 
-    if (!SHAIsPortrait())
-        return original;
+
+    if (classes)
+        free(classes);
+
 
     /*
-     * Không can thiệp chính Home Grabber.
+     * Save result.
      */
-    if ([self isKindOfClass:
-            NSClassFromString(@"SBHomeGrabberView")])
+    NSString *path =
+        @"/var/mobile/Media/SHA_RuntimeDump.txt";
+
+
+    NSError *error = nil;
+
+    BOOL success =
+        [output writeToFile:path
+                 atomically:YES
+                   encoding:NSUTF8StringEncoding
+                      error:&error];
+
+
+    if (!success)
     {
-        return original;
+        NSString *fallback =
+            [NSString stringWithFormat:
+                @"ERROR WRITING FILE:\n%@\n\n%@",
+                error,
+                output];
+
+        [fallback writeToFile:
+            @"/tmp/SHA_RuntimeDump.txt"
+                   atomically:YES
+                     encoding:NSUTF8StringEncoding
+                        error:nil];
     }
-
-    CGFloat homeHeight = SHAHomeHeight();
-
-    if (homeHeight <= 0.0)
-    {
-        original.bottom = 0.0;
-        return original;
-    }
-
-    if (original.bottom > 0.0)
-        original.bottom = homeHeight;
-
-    return original;
 }
 
-%end
-
-
-#pragma mark -
-#pragma mark UIWindow
-
-%hook UIWindow
-
-- (UIEdgeInsets)safeAreaInsets
-{
-    UIEdgeInsets original = %orig;
-
-    if (!SHAIsPortrait())
-        return original;
-
-    CGFloat homeHeight = SHAHomeHeight();
-
-    if (homeHeight <= 0.0)
-    {
-        original.bottom = 0.0;
-        return original;
-    }
-
-    if (original.bottom > 0.0)
-        original.bottom = homeHeight;
-
-    return original;
-}
-
-%end
-
-
-#pragma mark -
-#pragma mark Refresh
-
-static void SHARefreshUI(void)
-{
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
-            UIApplication *application =
-                [UIApplication sharedApplication];
-
-            if (!application)
-                return;
-
-            for (UIScene *scene in application.connectedScenes)
-            {
-                if (![scene isKindOfClass:[UIWindowScene class]])
-                    continue;
-
-                UIWindowScene *windowScene =
-                    (UIWindowScene *)scene;
-
-                for (UIWindow *window in windowScene.windows)
-                {
-                    [window setNeedsLayout];
-                    [window setNeedsUpdateConstraints];
-
-                    [window.rootViewController
-                        viewSafeAreaInsetsDidChange];
-                }
-            }
-
-            Class grabberClass =
-                NSClassFromString(@"SBHomeGrabberView");
-
-            if (!grabberClass)
-                return;
-
-            for (UIScene *scene in application.connectedScenes)
-            {
-                if (![scene isKindOfClass:[UIWindowScene class]])
-                    continue;
-
-                UIWindowScene *windowScene =
-                    (UIWindowScene *)scene;
-
-                for (UIWindow *window in windowScene.windows)
-                {
-                    NSMutableArray *stack =
-                        [NSMutableArray arrayWithObject:window];
-
-                    while (stack.count)
-                    {
-                        UIView *view =
-                            [stack lastObject];
-
-                        [stack removeLastObject];
-
-                        if ([view isKindOfClass:grabberClass])
-                        {
-                            [view setNeedsLayout];
-                        }
-
-                        for (UIView *subview in view.subviews)
-                        {
-                            [stack addObject:subview];
-                        }
-                    }
-                }
-            }
-        }
-    );
-}
-
-
-#pragma mark -
-#pragma mark Notification
-
-static void SHASettingsChanged(int token)
-{
-    (void)token;
-
-    SHARefreshUI();
-}
-
-
-#pragma mark -
-#pragma mark Constructor
 
 %ctor
 {
     NSString *bundleIdentifier =
         [[NSBundle mainBundle] bundleIdentifier];
 
-    if (!bundleIdentifier)
-        return;
-
-    /*
-     * Tweak chỉ chạy trong SpringBoard.
-     *
-     * Đây là nơi chứa:
-     * _UIStatusBar
-     * UIApplicationSceneSettings
-     * SBHomeGrabberView
-     */
     if (![bundleIdentifier
             isEqualToString:@"com.apple.springboard"])
     {
         return;
     }
 
-    %init;
 
-    int token = 0;
-
-    notify_register_dispatch(
-        SHA_SETTINGS_CHANGED,
-        &token,
+    /*
+     * Chờ SpringBoard khởi tạo Objective-C classes.
+     */
+    dispatch_after(
+        dispatch_time(
+            DISPATCH_TIME_NOW,
+            (int64_t)(5.0 * NSEC_PER_SEC)
+        ),
         dispatch_get_main_queue(),
-        ^(int changedToken)
-        {
-            SHASettingsChanged(changedToken);
+        ^{
+            SHADumpRuntime();
         }
     );
 }
