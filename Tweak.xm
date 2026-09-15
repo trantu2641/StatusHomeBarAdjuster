@@ -2,19 +2,21 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <notify.h>
-
-#pragma mark - Constants
-
-static NSString * const SHASettingsDomain =
-    @"com.congtu.statushomebaradjuster";
-
-static const CGFloat SHA_MIN_DELTA = -120.0;
-static const CGFloat SHA_MAX_DELTA =  120.0;
+#import <dispatch/dispatch.h>
+#import <math.h>
 
 #pragma mark - Preferences
 
 static CGFloat SHAStatusDelta = 0.0;
 static CGFloat SHAHomeDelta = 0.0;
+
+static NSString * const SHAStatusKey = @"SHAStatusOriginalTransform";
+static NSString * const SHAHomeKey = @"SHAHomeOriginalTransform";
+
+static const CGFloat SHA_MIN = -120.0;
+static const CGFloat SHA_MAX =  120.0;
+
+#pragma mark - Preference Loader
 
 static void SHA_LoadPreferences(void)
 {
@@ -23,13 +25,13 @@ static void SHA_LoadPreferences(void)
 
     CFPreferencesAppSynchronize(domain);
 
-    CFPropertyListRef statusValue =
+    CFPropertyListRef status =
         CFPreferencesCopyAppValue(
             CFSTR("StatusBarOffset"),
             domain
         );
 
-    CFPropertyListRef homeValue =
+    CFPropertyListRef home =
         CFPreferencesCopyAppValue(
             CFSTR("HomeBarOffset"),
             domain
@@ -38,58 +40,53 @@ static void SHA_LoadPreferences(void)
     SHAStatusDelta = 0.0;
     SHAHomeDelta = 0.0;
 
-    if (statusValue &&
-        CFGetTypeID(statusValue) == CFNumberGetTypeID())
+    if (status &&
+        CFGetTypeID(status) == CFNumberGetTypeID())
     {
         double value = 0.0;
 
         if (CFNumberGetValue(
-                (CFNumberRef)statusValue,
+                (CFNumberRef)status,
                 kCFNumberDoubleType,
                 &value))
         {
             SHAStatusDelta =
                 (CGFloat)MAX(
-                    SHA_MIN_DELTA,
-                    MIN(SHA_MAX_DELTA, value)
+                    SHA_MIN,
+                    MIN(SHA_MAX, value)
                 );
         }
     }
 
-    if (homeValue &&
-        CFGetTypeID(homeValue) == CFNumberGetTypeID())
+    if (home &&
+        CFGetTypeID(home) == CFNumberGetTypeID())
     {
         double value = 0.0;
 
         if (CFNumberGetValue(
-                (CFNumberRef)homeValue,
+                (CFNumberRef)home,
                 kCFNumberDoubleType,
                 &value))
         {
             SHAHomeDelta =
                 (CGFloat)MAX(
-                    SHA_MIN_DELTA,
-                    MIN(SHA_MAX_DELTA, value)
+                    SHA_MIN,
+                    MIN(SHA_MAX, value)
                 );
         }
     }
 
-    if (statusValue)
-        CFRelease(statusValue);
+    if (status)
+        CFRelease(status);
 
-    if (homeValue)
-        CFRelease(homeValue);
+    if (home)
+        CFRelease(home);
 }
 
-#pragma mark - Orientation
+#pragma mark - Portrait
 
-static BOOL SHA_IsPortrait(UIView *view)
+static BOOL SHA_IsPortrait(UIWindow *window)
 {
-    if (!view)
-        return NO;
-
-    UIWindow *window = view.window;
-
     if (!window)
         return NO;
 
@@ -101,115 +98,289 @@ static BOOL SHA_IsPortrait(UIView *view)
         if (!scene)
             return NO;
 
-        UIInterfaceOrientation orientation =
+        UIInterfaceOrientation o =
             scene.interfaceOrientation;
 
         return
-            orientation == UIInterfaceOrientationPortrait ||
-            orientation == UIInterfaceOrientationPortraitUpsideDown;
+            o == UIInterfaceOrientationPortrait ||
+            o == UIInterfaceOrientationPortraitUpsideDown;
     }
 
     return NO;
 }
 
-#pragma mark - Home Bar Visual
+#pragma mark - Transform Storage
 
-/*
- * Không thay đổi frame/bounds của Home Bar container.
- *
- * Không thay đổi:
- * - safe area
- * - gesture region
- * - gesture recognizers
- * - superview geometry
- *
- * Chỉ áp dụng visual transform cho chính visual layer.
- *
- * Nếu delta = 0 thì loại bỏ transform.
- */
+static NSValue *SHA_GetOriginalTransform(
+    UIView *view,
+    NSString *key
+)
+{
+    return objc_getAssociatedObject(
+        view,
+        (__bridge const void *)(key)
+    );
+}
 
-static void SHA_ApplyHomeVisual(UIView *view)
+static void SHA_SaveOriginalTransform(
+    UIView *view,
+    NSString *key
+)
+{
+    NSValue *saved =
+        SHA_GetOriginalTransform(
+            view,
+            key
+        );
+
+    if (saved)
+        return;
+
+    CGAffineTransform transform =
+        view.layer.affineTransform;
+
+    objc_setAssociatedObject(
+        view,
+        (__bridge const void *)(key),
+        [NSValue valueWithCGAffineTransform:transform],
+        OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    );
+}
+
+static CGAffineTransform SHA_OriginalTransform(
+    UIView *view,
+    NSString *key
+)
+{
+    NSValue *saved =
+        SHA_GetOriginalTransform(
+            view,
+            key
+        );
+
+    if (!saved)
+        return CGAffineTransformIdentity;
+
+    return [saved CGAffineTransformValue];
+}
+
+#pragma mark - Safe Visual Test
+
+static BOOL SHA_IsForbiddenHomeContainer(UIView *view)
 {
     if (!view)
+        return YES;
+
+    NSString *name =
+        NSStringFromClass([view class]);
+
+    if ([name isEqualToString:@"SBHomeGrabberView"])
+        return YES;
+
+    if ([name containsString:@"Gesture"])
+        return YES;
+
+    if ([name containsString:@"Keyboard"])
+        return YES;
+
+    if ([name containsString:@"Touch"])
+        return YES;
+
+    if ([name containsString:@"Transition"])
+        return YES;
+
+    return NO;
+}
+
+static BOOL SHA_IsForbiddenStatusContainer(UIView *view)
+{
+    if (!view)
+        return YES;
+
+    NSString *name =
+        NSStringFromClass([view class]);
+
+    if ([name containsString:@"Keyboard"])
+        return YES;
+
+    if ([name containsString:@"Gesture"])
+        return YES;
+
+    if ([name containsString:@"Transition"])
+        return YES;
+
+    return NO;
+}
+
+#pragma mark - Home Visual Container
+
+/*
+ * Bắt đầu từ MTLumaDodgePillView /
+ * MTStaticColorPillView.
+ *
+ * Không resize chính pill.
+ *
+ * Không resize SBHomeGrabberView.
+ *
+ * Đi lên hierarchy để tìm một visual ancestor
+ * có kích thước hợp lý.
+ */
+
+static UIView *SHA_FindHomeVisualContainer(
+    UIView *pill
+)
+{
+    if (!pill)
+        return nil;
+
+    UIWindow *window =
+        pill.window;
+
+    if (!window)
+        return nil;
+
+    UIView *candidate =
+        pill.superview;
+
+    NSInteger depth = 0;
+
+    while (candidate && depth < 6)
+    {
+        if (candidate == window)
+            break;
+
+        if (!SHA_IsForbiddenHomeContainer(candidate))
+        {
+            CGRect frame =
+                [candidate.superview
+                    convertRect:candidate.frame
+                    toView:window];
+
+            CGFloat width =
+                CGRectGetWidth(frame);
+
+            CGFloat height =
+                CGRectGetHeight(frame);
+
+            CGFloat screenWidth =
+                CGRectGetWidth(window.bounds);
+
+            /*
+             * Home visual host thường nằm gần
+             * toàn chiều rộng màn hình nhưng
+             * có chiều cao nhỏ hơn màn hình.
+             */
+            if (width >= screenWidth * 0.55 &&
+                width <= screenWidth * 1.05 &&
+                height >= 5.0 &&
+                height <= 250.0)
+            {
+                return candidate;
+            }
+        }
+
+        candidate =
+            candidate.superview;
+
+        depth++;
+    }
+
+    return nil;
+}
+
+#pragma mark - Apply Home
+
+static void SHA_ApplyHomeContainer(
+    UIView *container
+)
+{
+    if (!container)
         return;
 
-    if (!view.window)
+    UIWindow *window =
+        container.window;
+
+    if (!window)
         return;
 
-    if (!SHA_IsPortrait(view))
-        return;
-
-    CGFloat delta = SHAHomeDelta;
-
-    CALayer *layer = view.layer;
-
-    if (!layer)
+    if (!SHA_IsPortrait(window))
         return;
 
     /*
-     * delta = 0:
-     * khôi phục visual nguyên bản.
+     * Tuyệt đối không động gesture container.
      */
-    if (fabs(delta) < 0.001)
+    if (SHA_IsForbiddenHomeContainer(container))
+        return;
+
+    SHA_SaveOriginalTransform(
+        container,
+        SHAHomeKey
+    );
+
+    CGAffineTransform original =
+        SHA_OriginalTransform(
+            container,
+            SHAHomeKey
+        );
+
+    /*
+     * Offset 0 = nguyên trạng.
+     */
+    if (fabs(SHAHomeDelta) < 0.001)
     {
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
 
-        layer.transform =
-            CATransform3DIdentity;
+        container.layer.affineTransform =
+            original;
 
         [CATransaction commit];
 
         return;
     }
 
-    CGFloat originalHeight =
-        CGRectGetHeight(layer.bounds);
+    CGRect bounds =
+        container.bounds;
 
-    if (originalHeight <= 0.0)
+    CGFloat height =
+        CGRectGetHeight(bounds);
+
+    if (height <= 5.0)
         return;
 
-    /*
-     * Tính scale từ chiều cao gốc.
-     *
-     * Không thay bounds.
-     * Không thay frame.
-     */
-    CGFloat targetHeight =
-        originalHeight + delta;
+    CGFloat target =
+        height + SHAHomeDelta;
 
-    if (targetHeight < 1.0)
-        targetHeight = 1.0;
+    if (target < 1.0)
+        target = 1.0;
 
-    CGFloat scaleY =
-        targetHeight / originalHeight;
+    CGFloat scale =
+        target / height;
 
-    /*
-     * Giới hạn để tránh giá trị bất thường.
-     */
-    if (scaleY < 0.05)
-        scaleY = 0.05;
+    if (scale < 0.10)
+        scale = 0.10;
 
-    if (scaleY > 20.0)
-        scaleY = 20.0;
+    if (scale > 10.0)
+        scale = 10.0;
 
     /*
-     * Chỉ thay rendering transform.
-     *
-     * Không gọi setNeedsLayout.
-     * Không sửa bounds.
+     * Giữ transform gốc của hệ thống,
+     * sau đó scale Y thêm.
      */
-    CATransform3D transform =
-        CATransform3DMakeScale(
-            1.0,
-            scaleY,
-            1.0
+    CGAffineTransform result =
+        CGAffineTransformConcat(
+            original,
+            CGAffineTransformMakeScale(
+                1.0,
+                scale
+            )
         );
 
     [CATransaction begin];
     [CATransaction setDisableActions:YES];
 
-    layer.transform = transform;
+    container.layer.affineTransform =
+        result;
 
     [CATransaction commit];
 }
@@ -222,8 +393,6 @@ static void SHA_ApplyHomeVisual(UIView *view)
 @interface MTStaticColorPillView : UIView
 @end
 
-#pragma mark - Luma Home Bar
-
 %hook MTLumaDodgePillView
 
 - (void)didMoveToWindow
@@ -232,21 +401,20 @@ static void SHA_ApplyHomeVisual(UIView *view)
 
     SHA_LoadPreferences();
 
-    /*
-     * Chỉ chạy sau khi view thực sự
-     * được đưa vào window.
-     */
-    if (self.window)
-    {
-        SHA_ApplyHomeVisual(
+    UIView *container =
+        SHA_FindHomeVisualContainer(
             (UIView *)self
+        );
+
+    if (container)
+    {
+        SHA_ApplyHomeContainer(
+            container
         );
     }
 }
 
 %end
-
-#pragma mark - Static Home Bar
 
 %hook MTStaticColorPillView
 
@@ -256,17 +424,276 @@ static void SHA_ApplyHomeVisual(UIView *view)
 
     SHA_LoadPreferences();
 
-    if (self.window)
-    {
-        SHA_ApplyHomeVisual(
+    UIView *container =
+        SHA_FindHomeVisualContainer(
             (UIView *)self
+        );
+
+    if (container)
+    {
+        SHA_ApplyHomeContainer(
+            container
         );
     }
 }
 
 %end
 
-#pragma mark - Settings Notification
+#pragma mark - Status Visual Search
+
+static BOOL SHA_IsStatusView(
+    UIView *view
+)
+{
+    if (!view)
+        return NO;
+
+    NSString *name =
+        NSStringFromClass([view class]);
+
+    if ([name containsString:@"StatusBar"])
+        return YES;
+
+    if ([name containsString:@"statusBar"])
+        return YES;
+
+    return NO;
+}
+
+static UIView *SHA_FindStatusVisualContainer(
+    UIView *statusView
+)
+{
+    if (!statusView)
+        return nil;
+
+    UIWindow *window =
+        statusView.window;
+
+    if (!window)
+        return nil;
+
+    UIView *candidate =
+        statusView;
+
+    NSInteger depth = 0;
+
+    while (candidate && depth < 4)
+    {
+        if (candidate == window)
+            break;
+
+        if (!SHA_IsForbiddenStatusContainer(candidate))
+        {
+            CGRect frame =
+                [candidate.superview
+                    convertRect:candidate.frame
+                    toView:window];
+
+            CGFloat width =
+                CGRectGetWidth(frame);
+
+            CGFloat height =
+                CGRectGetHeight(frame);
+
+            CGFloat screenWidth =
+                CGRectGetWidth(window.bounds);
+
+            if (width >= screenWidth * 0.70 &&
+                width <= screenWidth * 1.05 &&
+                height >= 5.0 &&
+                height <= 150.0)
+            {
+                return candidate;
+            }
+        }
+
+        candidate =
+            candidate.superview;
+
+        depth++;
+    }
+
+    return nil;
+}
+
+#pragma mark - Apply Status
+
+static void SHA_ApplyStatusContainer(
+    UIView *container
+)
+{
+    if (!container)
+        return;
+
+    UIWindow *window =
+        container.window;
+
+    if (!window)
+        return;
+
+    if (!SHA_IsPortrait(window))
+        return;
+
+    if (SHA_IsForbiddenStatusContainer(container))
+        return;
+
+    SHA_SaveOriginalTransform(
+        container,
+        SHAStatusKey
+    );
+
+    CGAffineTransform original =
+        SHA_OriginalTransform(
+            container,
+            SHAStatusKey
+    );
+
+    if (fabs(SHAStatusDelta) < 0.001)
+    {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+
+        container.layer.affineTransform =
+            original;
+
+        [CATransaction commit];
+
+        return;
+    }
+
+    CGRect bounds =
+        container.bounds;
+
+    CGFloat height =
+        CGRectGetHeight(bounds);
+
+    if (height <= 5.0)
+        return;
+
+    CGFloat target =
+        height + SHAStatusDelta;
+
+    if (target < 1.0)
+        target = 1.0;
+
+    CGFloat scale =
+        target / height;
+
+    if (scale < 0.10)
+        scale = 0.10;
+
+    if (scale > 10.0)
+        scale = 10.0;
+
+    CGAffineTransform result =
+        CGAffineTransformConcat(
+            original,
+            CGAffineTransformMakeScale(
+                1.0,
+                scale
+            )
+        );
+
+    [CATransaction begin];
+    [CATransaction setDisableActions:YES];
+
+    container.layer.affineTransform =
+        result;
+
+    [CATransaction commit];
+}
+
+#pragma mark - UIWindow
+
+%hook UIWindow
+
+- (void)didMoveToWindow
+{
+    %orig;
+
+    /*
+     * Giống điểm vào của Trim:
+     * xử lý sau khi UIKit đưa view vào window.
+     */
+
+    SHA_LoadPreferences();
+
+    if (!self.window)
+        return;
+
+    if (!SHA_IsPortrait(self))
+        return;
+
+    /*
+     * Duyệt hierarchy mà không thay đổi
+     * geometry trong quá trình layout.
+     */
+
+    NSMutableArray *queue =
+        [NSMutableArray arrayWithObject:self];
+
+    NSInteger processed = 0;
+
+    while (queue.count > 0 &&
+           processed < 250)
+    {
+        UIView *view =
+            queue.firstObject;
+
+        [queue removeObjectAtIndex:0];
+
+        processed++;
+
+        NSString *name =
+            NSStringFromClass([view class]);
+
+        /*
+         * Home Bar.
+         */
+        if ([name isEqualToString:
+                @"MTLumaDodgePillView"] ||
+            [name isEqualToString:
+                @"MTStaticColorPillView"])
+        {
+            UIView *container =
+                SHA_FindHomeVisualContainer(view);
+
+            if (container)
+            {
+                SHA_ApplyHomeContainer(
+                    container
+                );
+            }
+        }
+
+        /*
+         * Status Bar.
+         */
+        if (SHA_IsStatusView(view))
+        {
+            UIView *container =
+                SHA_FindStatusVisualContainer(view);
+
+            if (container)
+            {
+                SHA_ApplyStatusContainer(
+                    container
+                );
+            }
+        }
+
+        for (UIView *subview in view.subviews)
+        {
+            if (subview)
+                [queue addObject:subview];
+        }
+    }
+}
+
+%end
+
+#pragma mark - Settings Changed
 
 static void SHA_SettingsChanged(
     CFNotificationCenterRef center,
@@ -279,24 +706,11 @@ static void SHA_SettingsChanged(
     SHA_LoadPreferences();
 
     /*
-     * Không ép toàn bộ UIKit layout lại.
+     * Không gọi setNeedsLayout toàn hệ thống.
      *
-     * Điều này rất quan trọng:
-     * tránh tạo cascade layout trong SpringBoard.
+     * Chỉ re-apply khi các system windows
+     * được đưa vào hierarchy lại.
      */
-
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
-            /*
-             * Không chạm private system views ở đây.
-             *
-             * Các Home Bar visual objects sẽ nhận
-             * preference mới khi UIKit đưa chúng
-             * vào window lần tiếp theo.
-             */
-        }
-    );
 }
 
 #pragma mark - Constructor
