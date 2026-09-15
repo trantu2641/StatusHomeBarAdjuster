@@ -1,9 +1,15 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <objc/message.h>
 #import <objc/runtime.h>
 #import <notify.h>
-#import <dispatch/dispatch.h>
+
+#pragma mark - Constants
+
+static NSString * const SHASettingsDomain =
+    @"com.congtu.statushomebaradjuster";
+
+static const CGFloat SHA_MIN_DELTA = -120.0;
+static const CGFloat SHA_MAX_DELTA =  120.0;
 
 #pragma mark - Preferences
 
@@ -37,14 +43,17 @@ static void SHA_LoadPreferences(void)
     {
         double value = 0.0;
 
-        CFNumberGetValue(
-            (CFNumberRef)statusValue,
-            kCFNumberDoubleType,
-            &value
-        );
-
-        SHAStatusDelta =
-            (CGFloat)MAX(-120.0, MIN(120.0, value));
+        if (CFNumberGetValue(
+                (CFNumberRef)statusValue,
+                kCFNumberDoubleType,
+                &value))
+        {
+            SHAStatusDelta =
+                (CGFloat)MAX(
+                    SHA_MIN_DELTA,
+                    MIN(SHA_MAX_DELTA, value)
+                );
+        }
     }
 
     if (homeValue &&
@@ -52,14 +61,17 @@ static void SHA_LoadPreferences(void)
     {
         double value = 0.0;
 
-        CFNumberGetValue(
-            (CFNumberRef)homeValue,
-            kCFNumberDoubleType,
-            &value
-        );
-
-        SHAHomeDelta =
-            (CGFloat)MAX(-120.0, MIN(120.0, value));
+        if (CFNumberGetValue(
+                (CFNumberRef)homeValue,
+                kCFNumberDoubleType,
+                &value))
+        {
+            SHAHomeDelta =
+                (CGFloat)MAX(
+                    SHA_MIN_DELTA,
+                    MIN(SHA_MAX_DELTA, value)
+                );
+        }
     }
 
     if (statusValue)
@@ -69,10 +81,15 @@ static void SHA_LoadPreferences(void)
         CFRelease(homeValue);
 }
 
-#pragma mark - Portrait
+#pragma mark - Orientation
 
-static BOOL SHA_IsPortraitForWindow(UIWindow *window)
+static BOOL SHA_IsPortrait(UIView *view)
 {
+    if (!view)
+        return NO;
+
+    UIWindow *window = view.window;
+
     if (!window)
         return NO;
 
@@ -95,118 +112,117 @@ static BOOL SHA_IsPortraitForWindow(UIWindow *window)
     return NO;
 }
 
-#pragma mark - Home Bar
+#pragma mark - Home Bar Visual
 
 /*
- * Home Bar visual.
+ * Không thay đổi frame/bounds của Home Bar container.
  *
- * Giữ nguyên kiến trúc an toàn:
+ * Không thay đổi:
+ * - safe area
+ * - gesture region
+ * - gesture recognizers
+ * - superview geometry
  *
- * - Không hook SBHomeGrabberView
- * - Không thay safeAreaInsets
- * - Không thay gesture recognizer
- * - Không thay frame của gesture container
+ * Chỉ áp dụng visual transform cho chính visual layer.
  *
- * Chỉ tác động visual layer của MTLumaDodgePillView /
- * MTStaticColorPillView.
+ * Nếu delta = 0 thì loại bỏ transform.
  */
 
-static void SHA_ApplyHomeVisual(UIView *pill)
+static void SHA_ApplyHomeVisual(UIView *view)
 {
-    if (!pill)
+    if (!view)
         return;
 
-    UIWindow *window =
-        pill.window;
-
-    if (!window)
+    if (!view.window)
         return;
 
-    if (!SHA_IsPortraitForWindow(window))
+    if (!SHA_IsPortrait(view))
         return;
 
-    /*
-     * Offset = 0:
-     * trả visual về kích thước gốc nếu trước đó
-     * tweak đã từng thay đổi nó.
-     */
+    CGFloat delta = SHAHomeDelta;
 
-    CALayer *layer =
-        pill.layer;
+    CALayer *layer = view.layer;
 
     if (!layer)
         return;
 
-    CGRect bounds =
-        layer.bounds;
+    /*
+     * delta = 0:
+     * khôi phục visual nguyên bản.
+     */
+    if (fabs(delta) < 0.001)
+    {
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
 
-    CGFloat currentHeight =
-        CGRectGetHeight(bounds);
+        layer.transform =
+            CATransform3DIdentity;
 
-    if (currentHeight <= 0.0)
+        [CATransaction commit];
+
+        return;
+    }
+
+    CGFloat originalHeight =
+        CGRectGetHeight(layer.bounds);
+
+    if (originalHeight <= 0.0)
         return;
 
-    NSNumber *originalNumber =
-        objc_getAssociatedObject(
-            pill,
-            "SHAOriginalHomeHeight"
-        );
+    /*
+     * Tính scale từ chiều cao gốc.
+     *
+     * Không thay bounds.
+     * Không thay frame.
+     */
+    CGFloat targetHeight =
+        originalHeight + delta;
 
-    CGFloat originalHeight;
+    if (targetHeight < 1.0)
+        targetHeight = 1.0;
 
-    if (originalNumber)
-    {
-        originalHeight =
-            [originalNumber doubleValue];
-    }
-    else
-    {
-        originalHeight =
-            currentHeight;
-
-        objc_setAssociatedObject(
-            pill,
-            "SHAOriginalHomeHeight",
-            @(originalHeight),
-            OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        );
-    }
-
-    CGFloat newHeight =
-        originalHeight + SHAHomeDelta;
-
-    if (newHeight < 1.0)
-        newHeight = 1.0;
+    CGFloat scaleY =
+        targetHeight / originalHeight;
 
     /*
-     * Giữ cạnh dưới cố định.
+     * Giới hạn để tránh giá trị bất thường.
      */
-    CGFloat bottom =
-        CGRectGetMaxY(bounds);
+    if (scaleY < 0.05)
+        scaleY = 0.05;
 
-    bounds.size.height =
-        newHeight;
+    if (scaleY > 20.0)
+        scaleY = 20.0;
 
-    bounds.origin.y =
-        bottom - newHeight;
+    /*
+     * Chỉ thay rendering transform.
+     *
+     * Không gọi setNeedsLayout.
+     * Không sửa bounds.
+     */
+    CATransform3D transform =
+        CATransform3DMakeScale(
+            1.0,
+            scaleY,
+            1.0
+        );
 
     [CATransaction begin];
-
     [CATransaction setDisableActions:YES];
 
-    layer.bounds =
-        bounds;
+    layer.transform = transform;
 
     [CATransaction commit];
 }
 
-#pragma mark - Home Bar Visual Classes
+#pragma mark - Home Bar Classes
 
 @interface MTLumaDodgePillView : UIView
 @end
 
 @interface MTStaticColorPillView : UIView
 @end
+
+#pragma mark - Luma Home Bar
 
 %hook MTLumaDodgePillView
 
@@ -216,23 +232,21 @@ static void SHA_ApplyHomeVisual(UIView *pill)
 
     SHA_LoadPreferences();
 
-    SHA_ApplyHomeVisual(
-        (UIView *)self
-    );
-}
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    SHA_ApplyHomeVisual(
-        (UIView *)self
-    );
+    /*
+     * Chỉ chạy sau khi view thực sự
+     * được đưa vào window.
+     */
+    if (self.window)
+    {
+        SHA_ApplyHomeVisual(
+            (UIView *)self
+        );
+    }
 }
 
 %end
+
+#pragma mark - Static Home Bar
 
 %hook MTStaticColorPillView
 
@@ -242,136 +256,17 @@ static void SHA_ApplyHomeVisual(UIView *pill)
 
     SHA_LoadPreferences();
 
-    SHA_ApplyHomeVisual(
-        (UIView *)self
-    );
-}
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    SHA_ApplyHomeVisual(
-        (UIView *)self
-    );
+    if (self.window)
+    {
+        SHA_ApplyHomeVisual(
+            (UIView *)self
+        );
+    }
 }
 
 %end
 
-#pragma mark - Status Bar
-
-/*
- * Status Bar.
- *
- * Không sử dụng SHA_ClassIs.
- * Không hook _UIStatusBar class method.
- *
- * Chỉ xử lý instance layout.
- */
-
-static void SHA_ResizeStatusVisual(UIView *view)
-{
-    if (!view)
-        return;
-
-    UIWindow *window =
-        view.window;
-
-    if (!window)
-        return;
-
-    if (!SHA_IsPortraitForWindow(window))
-        return;
-
-    CALayer *layer =
-        view.layer;
-
-    if (!layer)
-        return;
-
-    CGRect bounds =
-        view.bounds;
-
-    CGFloat currentHeight =
-        CGRectGetHeight(bounds);
-
-    if (currentHeight <= 0.0)
-        return;
-
-    NSNumber *originalNumber =
-        objc_getAssociatedObject(
-            view,
-            "SHAOriginalStatusHeight"
-        );
-
-    CGFloat originalHeight;
-
-    if (originalNumber)
-    {
-        originalHeight =
-            [originalNumber doubleValue];
-    }
-    else
-    {
-        originalHeight =
-            currentHeight;
-
-        objc_setAssociatedObject(
-            view,
-            "SHAOriginalStatusHeight",
-            @(originalHeight),
-            OBJC_ASSOCIATION_RETAIN_NONATOMIC
-        );
-    }
-
-    CGFloat newHeight =
-        originalHeight + SHAStatusDelta;
-
-    if (newHeight < 1.0)
-        newHeight = 1.0;
-
-    CGFloat bottom =
-        CGRectGetMaxY(bounds);
-
-    bounds.size.height =
-        newHeight;
-
-    bounds.origin.y =
-        bottom - newHeight;
-
-    [CATransaction begin];
-
-    [CATransaction setDisableActions:YES];
-
-    layer.bounds =
-        bounds;
-
-    [CATransaction commit];
-}
-
-#pragma mark - UIKit Status Bar
-
-@interface _UIStatusBar : UIView
-@end
-
-%hook _UIStatusBar
-
-- (void)layoutSubviews
-{
-    %orig;
-
-    SHA_LoadPreferences();
-
-    SHA_ResizeStatusVisual(
-        (UIView *)self
-    );
-}
-
-%end
-
-#pragma mark - Settings Changed
+#pragma mark - Settings Notification
 
 static void SHA_SettingsChanged(
     CFNotificationCenterRef center,
@@ -383,37 +278,23 @@ static void SHA_SettingsChanged(
 {
     SHA_LoadPreferences();
 
+    /*
+     * Không ép toàn bộ UIKit layout lại.
+     *
+     * Điều này rất quan trọng:
+     * tránh tạo cascade layout trong SpringBoard.
+     */
+
     dispatch_async(
         dispatch_get_main_queue(),
         ^{
-            UIApplication *application =
-                [UIApplication sharedApplication];
-
-            if (!application)
-                return;
-
-            if (@available(iOS 13.0, *))
-            {
-                for (UIScene *scene
-                     in application.connectedScenes)
-                {
-                    if (![scene
-                            isKindOfClass:
-                                [UIWindowScene class]])
-                    {
-                        continue;
-                    }
-
-                    UIWindowScene *windowScene =
-                        (UIWindowScene *)scene;
-
-                    for (UIWindow *window
-                         in windowScene.windows)
-                    {
-                        [window setNeedsLayout];
-                    }
-                }
-            }
+            /*
+             * Không chạm private system views ở đây.
+             *
+             * Các Home Bar visual objects sẽ nhận
+             * preference mới khi UIKit đưa chúng
+             * vào window lần tiếp theo.
+             */
         }
     );
 }
