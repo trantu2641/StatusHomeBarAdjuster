@@ -1,4 +1,6 @@
 #import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
+#import <objc/message.h>
 #import <objc/runtime.h>
 
 @class _UIStatusBar;
@@ -7,381 +9,616 @@
 @class SBHomeGrabberView;
 @class SBHomeGrabberRotationView;
 
-static NSString *SHAFile = @"/var/mobile/Media/SHA_LiveGeometry.txt";
+static NSString * const kSHADiagnosticPath =
+    @"/var/mobile/Media/SHA_LiveGeometry.txt";
 
-static void SHAWrite(NSString *text) {
-    @synchronized (SHAFile) {
-        NSFileHandle *handle =
-            [NSFileHandle fileHandleForWritingAtPath:SHAFile];
+#pragma mark - File output
 
-        if (!handle) {
-            [[text dataUsingEncoding:NSUTF8StringEncoding]
-                writeToFile:SHAFile
-                atomically:YES];
-        } else {
-            [handle seekToEndOfFile];
-            [handle writeData:
-                [text dataUsingEncoding:NSUTF8StringEncoding]];
-            [handle closeFile];
+static void SHAAppend(NSString *text)
+{
+    if (!text)
+        return;
+
+    @try {
+        NSFileHandle *file =
+            [NSFileHandle fileHandleForWritingAtPath:kSHADiagnosticPath];
+
+        if (!file) {
+            [text writeToFile:kSHADiagnosticPath
+                   atomically:YES
+                     encoding:NSUTF8StringEncoding
+                        error:nil];
+            return;
         }
+
+        [file seekToEndOfFile];
+
+        NSData *data =
+            [text dataUsingEncoding:NSUTF8StringEncoding];
+
+        if (data)
+            [file writeData:data];
+
+        [file closeFile];
+    }
+    @catch (__unused NSException *exception) {
     }
 }
 
-static NSString *SHAClassName(id obj) {
-    if (!obj) {
+static NSString *SHAClassName(id object)
+{
+    if (!object)
         return @"(nil)";
-    }
 
-    return NSStringFromClass([obj class]);
+    return NSStringFromClass([object class]);
 }
 
-static NSString *SHAFrame(CGRect r) {
+static NSString *SHAFrameString(CGRect frame)
+{
     return [NSString stringWithFormat:
         @"x=%.2f y=%.2f w=%.2f h=%.2f",
-        r.origin.x,
-        r.origin.y,
-        r.size.width,
-        r.size.height
+        frame.origin.x,
+        frame.origin.y,
+        frame.size.width,
+        frame.size.height
     ];
 }
 
+static NSString *SHABoundsString(CGRect bounds)
+{
+    return [NSString stringWithFormat:
+        @"x=%.2f y=%.2f w=%.2f h=%.2f",
+        bounds.origin.x,
+        bounds.origin.y,
+        bounds.size.width,
+        bounds.size.height
+    ];
+}
 
-/*
- * Quan trọng:
- *
- * Dùng id thay vì UIView * ở argument đầu tiên.
- * Các class private của SpringBoard chỉ được forward-declare,
- * nên compiler không biết chúng kế thừa UIView.
- */
-static void SHADumpViewChain(id object, NSString *title) {
+#pragma mark - View diagnostic
 
-    if (!object) {
+static void SHADumpViewChain(id object, NSString *title)
+{
+    if (!object)
         return;
-    }
 
     UIView *view = nil;
 
+    /*
+     * Private SpringBoard classes are only forward-declared above.
+     * Therefore we intentionally convert them through id.
+     */
     if ([object isKindOfClass:[UIView class]]) {
         view = (UIView *)object;
     }
 
-    if (!view) {
-        SHAWrite(
-            [NSString stringWithFormat:
-                @"\n[%@]\n"
-                 "Object %@ <%p> is NOT UIView\n",
-                title,
-                SHAClassName(object),
-                object
-            ]
-        );
+    NSMutableString *output = [NSMutableString string];
 
-        return;
-    }
-
-    NSMutableString *out = [NSMutableString string];
-
-    [out appendFormat:
-        @"\n==================================================\n"
-         @"%@\n"
-         @"==================================================\n",
+    [output appendFormat:
+        @"\n"
+         "============================================================\n"
+         "%@\n"
+         "============================================================\n",
         title
     ];
+
+    if (!view) {
+        [output appendFormat:
+            @"Object: %@ <%p>\n"
+             "NOT a UIView instance\n",
+            SHAClassName(object),
+            object
+        ];
+
+        SHAAppend(output);
+        return;
+    }
 
     UIView *current = view;
     NSInteger level = 0;
 
-    while (current && level < 20) {
+    while (current && level < 25) {
 
-        UIWindow *window = nil;
-
-        if ([current isKindOfClass:[UIWindow class]]) {
-            window = (UIWindow *)current;
-        } else {
-            window = current.window;
-        }
-
-        [out appendFormat:
-            @"\n[%ld] %@ <%p>\n"
-             @" frame: %@\n"
-             @" bounds: %@\n"
-             @" center: (%.2f, %.2f)\n"
-             @" hidden: %@\n"
-             @" alpha: %.3f\n"
-             @" window: %@ <%p>\n",
+        [output appendFormat:
+            @"\n[%ld] %@ <%p>\n",
             (long)level,
             SHAClassName(current),
-            current,
-            SHAFrame(current.frame),
-            SHAFrame(current.bounds),
+            current
+        ];
+
+        [output appendFormat:
+            @"  frame       = %@\n",
+            SHAFrameString(current.frame)
+        ];
+
+        [output appendFormat:
+            @"  bounds      = %@\n",
+            SHABoundsString(current.bounds)
+        ];
+
+        [output appendFormat:
+            @"  center      = (%.2f, %.2f)\n",
             current.center.x,
-            current.center.y,
-            current.hidden ? @"YES" : @"NO",
-            current.alpha,
-            window ? SHAClassName(window) : @"(nil)",
-            window
+            current.center.y
+        ];
+
+        [output appendFormat:
+            @"  hidden      = %@\n",
+            current.hidden ? @"YES" : @"NO"
+        ];
+
+        [output appendFormat:
+            @"  alpha       = %.3f\n",
+            current.alpha
+        ];
+
+        [output appendFormat:
+            @"  userInteraction = %@\n",
+            current.userInteractionEnabled ? @"YES" : @"NO"
         ];
 
         if (@available(iOS 11.0, *)) {
 
-            UIEdgeInsets safe = current.safeAreaInsets;
+            UIEdgeInsets safeArea =
+                current.safeAreaInsets;
 
-            [out appendFormat:
-                @" safeAreaInsets: "
-                 @"top=%.2f "
-                 @"left=%.2f "
-                 @"bottom=%.2f "
-                 @"right=%.2f\n",
-                safe.top,
-                safe.left,
-                safe.bottom,
-                safe.right
+            [output appendFormat:
+                @"  safeAreaInsets = "
+                 @"top %.2f / left %.2f / "
+                 @"bottom %.2f / right %.2f\n",
+                safeArea.top,
+                safeArea.left,
+                safeArea.bottom,
+                safeArea.right
             ];
         }
 
-        UIView *superview = current.superview;
+        UIView *superview =
+            current.superview;
 
         if (superview) {
-            [out appendFormat:
-                @" superview: %@ <%p>\n",
+
+            [output appendFormat:
+                @"  superview   = %@ <%p>\n",
                 SHAClassName(superview),
                 superview
             ];
+
         } else {
-            [out appendString:
-                @" superview: (nil)\n"
+
+            [output appendString:
+                @"  superview   = (nil)\n"
             ];
         }
 
-        NSArray *verticalConstraints =
-            [current constraintsAffectingLayoutForAxis:
-                UILayoutConstraintAxisVertical];
+        /*
+         * Vertical constraints affecting this view.
+         */
+        @try {
 
-        if (verticalConstraints.count > 0) {
+            NSArray *verticalConstraints =
+                [current
+                    constraintsAffectingLayoutForAxis:
+                        UILayoutConstraintAxisVertical];
 
-            [out appendFormat:
-                @" vertical constraints: %lu\n",
+            [output appendFormat:
+                @"  V constraints = %lu\n",
                 (unsigned long)verticalConstraints.count
             ];
 
-            NSUInteger max =
-                MIN(verticalConstraints.count, 20);
+            NSUInteger count =
+                MIN((NSUInteger)20,
+                    verticalConstraints.count);
 
-            for (NSUInteger i = 0; i < max; i++) {
+            for (NSUInteger i = 0; i < count; i++) {
 
-                [out appendFormat:
-                    @"   V[%lu] %@\n",
+                NSLayoutConstraint *constraint =
+                    verticalConstraints[i];
+
+                [output appendFormat:
+                    @"    V[%lu] = %@\n",
                     (unsigned long)i,
-                    verticalConstraints[i]
+                    constraint
                 ];
             }
         }
+        @catch (__unused NSException *exception) {
 
-        current = superview;
+            [output appendString:
+                @"  V constraints = <exception>\n"
+            ];
+        }
+
+        /*
+         * Horizontal constraints.
+         */
+        @try {
+
+            NSArray *horizontalConstraints =
+                [current
+                    constraintsAffectingLayoutForAxis:
+                        UILayoutConstraintAxisHorizontal];
+
+            [output appendFormat:
+                @"  H constraints = %lu\n",
+                (unsigned long)horizontalConstraints.count
+            ];
+
+            NSUInteger count =
+                MIN((NSUInteger)10,
+                    horizontalConstraints.count);
+
+            for (NSUInteger i = 0; i < count; i++) {
+
+                NSLayoutConstraint *constraint =
+                    horizontalConstraints[i];
+
+                [output appendFormat:
+                    @"    H[%lu] = %@\n",
+                    (unsigned long)i,
+                    constraint
+                ];
+            }
+        }
+        @catch (__unused NSException *exception) {
+
+            [output appendString:
+                @"  H constraints = <exception>\n"
+            ];
+        }
+
+        current = current.superview;
         level++;
     }
 
-    SHAWrite(out);
+    SHAAppend(output);
 }
 
+#pragma mark - Runtime information
 
-static void SHAHeader(void) {
+static void SHADumpClassMethods(Class cls,
+                                 NSString *name)
+{
+    if (!cls)
+        return;
 
-    SHAWrite(
+    NSMutableString *output = [NSMutableString string];
+
+    [output appendFormat:
         @"\n\n"
-         "##################################################\n"
-         "# SHA LIVE GEOMETRY DIAGNOSTIC\n"
-         "##################################################\n"
-         "# THIS BUILD DOES NOT MODIFY GEOMETRY\n"
-         "##################################################\n"
-    );
+         "############################################################\n"
+         "# CLASS: %@\n"
+         "############################################################\n",
+        name
+    ];
+
+    Class superClass = class_getSuperclass(cls);
+
+    if (superClass) {
+
+        [output appendFormat:
+            @"Superclass: %@\n",
+            NSStringFromClass(superClass)
+        ];
+    }
+
+    unsigned int count = 0;
+
+    Method *methods =
+        class_copyMethodList(cls, &count);
+
+    [output appendFormat:
+        @"Instance methods: %u\n",
+        count
+    ];
+
+    for (unsigned int i = 0; i < count; i++) {
+
+        SEL selector =
+            method_getName(methods[i]);
+
+        [output appendFormat:
+            @"  - %s\n",
+            sel_getName(selector)
+        ];
+    }
+
+    if (methods)
+        free(methods);
+
+    unsigned int classCount = 0;
+
+    Method *classMethods =
+        class_copyMethodList(
+            object_getClass(cls),
+            &classCount
+        );
+
+    [output appendFormat:
+        @"Class methods: %u\n",
+        classCount
+    ];
+
+    for (unsigned int i = 0; i < classCount; i++) {
+
+        SEL selector =
+            method_getName(classMethods[i]);
+
+        [output appendFormat:
+            @"  + %s\n",
+            sel_getName(selector)
+        ];
+    }
+
+    if (classMethods)
+        free(classMethods);
+
+    SHAAppend(output);
 }
 
-
-// ==================================================
-// HOME BAR — ROTATION VIEW
-// ==================================================
+#pragma mark - Home Bar
 
 %hook SBHomeGrabberRotationView
 
-- (void)layoutSubviews {
-
+- (void)layoutSubviews
+{
     %orig;
 
     static BOOL dumped = NO;
 
-    if (!dumped) {
+    if (dumped)
+        return;
 
-        dumped = YES;
+    dumped = YES;
 
-        SHADumpViewChain(
-            (id)self,
-            @"LIVE HOME BAR - SBHomeGrabberRotationView"
-        );
+    SHADumpViewChain(
+        (id)self,
+        @"LIVE HOME BAR / SBHomeGrabberRotationView"
+    );
 
-        @try {
+    @try {
 
-            SEL selector =
-                NSSelectorFromString(@"grabberView");
+        SEL selector =
+            NSSelectorFromString(@"grabberView");
 
-            if ([self respondsToSelector:selector]) {
+        if ([self respondsToSelector:selector]) {
 
-                id grabber =
-                    ((id (*)(id, SEL))
-                        objc_msgSend)(
-                            (id)self,
-                            selector
-                        );
-
-                if (grabber) {
-
-                    SHADumpViewChain(
-                        grabber,
-                        @"LIVE HOME BAR - grabberView"
+            id grabber =
+                ((id (*)(id, SEL))
+                    objc_msgSend)(
+                        (id)self,
+                        selector
                     );
-                }
+
+            if (grabber) {
+
+                SHADumpViewChain(
+                    grabber,
+                    @"LIVE HOME BAR / grabberView"
+                );
             }
         }
-        @catch (...) {
 
-            SHAWrite(
-                @"\n[HOME] grabberView exception\n"
-            );
-        }
+    }
+    @catch (NSException *exception) {
+
+        SHAAppend(
+            [NSString stringWithFormat:
+                @"\n[HOME ERROR] %@\n",
+                exception
+            ]
+        );
     }
 }
 
 %end
 
-
-// ==================================================
-// HOME BAR — MAIN VIEW
-// ==================================================
+#pragma mark - Home Bar main container
 
 %hook SBHomeGrabberView
 
-- (void)layoutSubviews {
-
+- (void)layoutSubviews
+{
     %orig;
 
     static BOOL dumped = NO;
 
-    if (!dumped) {
+    if (dumped)
+        return;
 
-        dumped = YES;
+    dumped = YES;
 
-        SHADumpViewChain(
-            (id)self,
-            @"LIVE HOME BAR - SBHomeGrabberView"
-        );
-    }
+    SHADumpViewChain(
+        (id)self,
+        @"LIVE HOME BAR / SBHomeGrabberView"
+    );
 }
 
 %end
 
-
-// ==================================================
-// STATUS BAR — MAIN DISPLAY VIEW
-// ==================================================
+#pragma mark - Status Bar main display
 
 %hook SBMainDisplaySceneLayoutStatusBarView
 
-- (void)layoutSubviews {
-
+- (void)layoutSubviews
+{
     %orig;
 
     static BOOL dumped = NO;
 
-    if (!dumped) {
+    if (dumped)
+        return;
 
-        dumped = YES;
+    dumped = YES;
 
-        SHADumpViewChain(
-            (id)self,
-            @"LIVE STATUS BAR - SBMainDisplaySceneLayoutStatusBarView"
-        );
-    }
+    SHADumpViewChain(
+        (id)self,
+        @"LIVE STATUS BAR / SBMainDisplaySceneLayoutStatusBarView"
+    );
 }
 
 %end
 
-
-// ==================================================
-// STATUS BAR — CONTAINER
-// ==================================================
+#pragma mark - Status Bar container
 
 %hook SBStatusBarContainer
 
-- (void)layoutSubviews {
-
+- (void)layoutSubviews
+{
     %orig;
 
     static BOOL dumped = NO;
 
-    if (!dumped) {
+    if (dumped)
+        return;
 
-        dumped = YES;
+    dumped = YES;
 
-        SHADumpViewChain(
-            (id)self,
-            @"LIVE STATUS BAR - SBStatusBarContainer"
-        );
-    }
+    SHADumpViewChain(
+        (id)self,
+        @"LIVE STATUS BAR / SBStatusBarContainer"
+    );
 }
 
 %end
 
-
-// ==================================================
-// STATUS BAR — UIKIT
-// ==================================================
+#pragma mark - UIKit Status Bar
 
 %hook _UIStatusBar
 
-- (void)layoutSubviews {
-
+- (void)layoutSubviews
+{
     %orig;
 
     static BOOL dumped = NO;
 
-    if (!dumped) {
+    if (dumped)
+        return;
 
-        dumped = YES;
+    dumped = YES;
 
-        SHADumpViewChain(
-            (id)self,
-            @"LIVE STATUS BAR - _UIStatusBar"
-        );
-    }
+    SHADumpViewChain(
+        (id)self,
+        @"LIVE STATUS BAR / _UIStatusBar"
+    );
 }
 
 %end
 
+#pragma mark - Constructor
 
-// ==================================================
-// CONSTRUCTOR
-// ==================================================
-
-%ctor {
-
+%ctor
+{
     @autoreleasepool {
 
         NSString *bundleID =
             [[NSBundle mainBundle] bundleIdentifier];
 
+        /*
+         * Diagnostic only runs inside SpringBoard.
+         */
         if (![bundleID
             isEqualToString:@"com.apple.springboard"]) {
 
             return;
         }
 
-        SHAHeader();
+        /*
+         * Start a fresh diagnostic file.
+         */
+        [@"" writeToFile:kSHADiagnosticPath
+               atomically:YES
+                 encoding:NSUTF8StringEncoding
+                    error:nil];
+
+        SHAAppend(
+            @"############################################################\n"
+             "# StatusHomeBarAdjuster\n"
+             "# LIVE GEOMETRY DIAGNOSTIC\n"
+             "#\n"
+             "# THIS BUILD DOES NOT MODIFY ANY UI GEOMETRY.\n"
+             "############################################################\n"
+        );
+
+        /*
+         * Confirm classes really exist at runtime.
+         */
+        Class homeRotation =
+            objc_getClass("SBHomeGrabberRotationView");
+
+        Class home =
+            objc_getClass("SBHomeGrabberView");
+
+        Class statusMain =
+            objc_getClass(
+                "SBMainDisplaySceneLayoutStatusBarView"
+            );
+
+        Class statusContainer =
+            objc_getClass("SBStatusBarContainer");
+
+        Class uiStatus =
+            objc_getClass("_UIStatusBar");
+
+        SHAAppend(
+            [NSString stringWithFormat:
+                @"\n"
+                 "[RUNTIME CLASSES]\n"
+                 "SBHomeGrabberRotationView = %@\n"
+                 "SBHomeGrabberView = %@\n"
+                 "SBMainDisplaySceneLayoutStatusBarView = %@\n"
+                 "SBStatusBarContainer = %@\n"
+                 "_UIStatusBar = %@\n",
+                homeRotation ? @"FOUND" : @"NOT FOUND",
+                home ? @"FOUND" : @"NOT FOUND",
+                statusMain ? @"FOUND" : @"NOT FOUND",
+                statusContainer ? @"FOUND" : @"NOT FOUND",
+                uiStatus ? @"FOUND" : @"NOT FOUND"
+            ]
+        );
+
+        /*
+         * Dump the important classes' method lists.
+         */
+        if (homeRotation) {
+            SHADumpClassMethods(
+                homeRotation,
+                @"SBHomeGrabberRotationView"
+            );
+        }
+
+        if (home) {
+            SHADumpClassMethods(
+                home,
+                @"SBHomeGrabberView"
+            );
+        }
+
+        if (statusMain) {
+            SHADumpClassMethods(
+                statusMain,
+                @"SBMainDisplaySceneLayoutStatusBarView"
+            );
+        }
+
+        if (statusContainer) {
+            SHADumpClassMethods(
+                statusContainer,
+                @"SBStatusBarContainer"
+            );
+        }
+
+        if (uiStatus) {
+            SHADumpClassMethods(
+                uiStatus,
+                @"_UIStatusBar"
+            );
+        }
+
+        SHAAppend(
+            @"\n[+] Diagnostic tweak loaded.\n"
+        );
 
         %init;
-
-        SHAWrite(
-            @"\n"
-             "[+] SHA diagnostic loaded successfully.\n"
-        );
     }
 }
