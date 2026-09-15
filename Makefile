@@ -4,10 +4,6 @@ TARGET = iphone:clang:16.5:15.0
 include $(THEOS)/makefiles/common.mk
 
 
-# ============================================================
-# TWEAK
-# ============================================================
-
 TWEAK_NAME = StatusHomeBarAdjuster
 
 StatusHomeBarAdjuster_FILES = Tweak.xm
@@ -17,10 +13,6 @@ StatusHomeBarAdjuster_INSTALL_TARGET_PROCESSES = SpringBoard
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
-
-# ============================================================
-# PREFERENCE BUNDLE
-# ============================================================
 
 BUNDLE_NAME = SHAStatusHomeBarAdjusterPrefs
 
@@ -43,10 +35,6 @@ SHAStatusHomeBarAdjusterPrefs_INSTALL_PATH = /Library/PreferenceBundles
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
-
-# ============================================================
-# STAGE
-# ============================================================
 
 after-stage::
 	@mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences
