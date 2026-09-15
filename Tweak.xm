@@ -1,24 +1,37 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 
+@class _UIStatusBar;
+@class SBMainDisplaySceneLayoutStatusBarView;
+@class SBStatusBarContainer;
+@class SBHomeGrabberView;
+@class SBHomeGrabberRotationView;
+
 static NSString *SHAFile = @"/var/mobile/Media/SHA_LiveGeometry.txt";
 
 static void SHAWrite(NSString *text) {
     @synchronized (SHAFile) {
-        NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:SHAFile];
+        NSFileHandle *handle =
+            [NSFileHandle fileHandleForWritingAtPath:SHAFile];
 
         if (!handle) {
-            [[text dataUsingEncoding:NSUTF8StringEncoding] writeToFile:SHAFile atomically:YES];
+            [[text dataUsingEncoding:NSUTF8StringEncoding]
+                writeToFile:SHAFile
+                atomically:YES];
         } else {
             [handle seekToEndOfFile];
-            [handle writeData:[text dataUsingEncoding:NSUTF8StringEncoding]];
+            [handle writeData:
+                [text dataUsingEncoding:NSUTF8StringEncoding]];
             [handle closeFile];
         }
     }
 }
 
 static NSString *SHAClassName(id obj) {
-    if (!obj) return @"(nil)";
+    if (!obj) {
+        return @"(nil)";
+    }
+
     return NSStringFromClass([obj class]);
 }
 
@@ -32,8 +45,39 @@ static NSString *SHAFrame(CGRect r) {
     ];
 }
 
-static void SHADumpViewChain(UIView *view, NSString *title) {
-    if (!view) return;
+
+/*
+ * Quan trọng:
+ *
+ * Dùng id thay vì UIView * ở argument đầu tiên.
+ * Các class private của SpringBoard chỉ được forward-declare,
+ * nên compiler không biết chúng kế thừa UIView.
+ */
+static void SHADumpViewChain(id object, NSString *title) {
+
+    if (!object) {
+        return;
+    }
+
+    UIView *view = nil;
+
+    if ([object isKindOfClass:[UIView class]]) {
+        view = (UIView *)object;
+    }
+
+    if (!view) {
+        SHAWrite(
+            [NSString stringWithFormat:
+                @"\n[%@]\n"
+                 "Object %@ <%p> is NOT UIView\n",
+                title,
+                SHAClassName(object),
+                object
+            ]
+        );
+
+        return;
+    }
 
     NSMutableString *out = [NSMutableString string];
 
@@ -41,12 +85,13 @@ static void SHADumpViewChain(UIView *view, NSString *title) {
         @"\n==================================================\n"
          @"%@\n"
          @"==================================================\n",
-        title];
+        title
+    ];
 
     UIView *current = view;
     NSInteger level = 0;
 
-    while (current && level < 15) {
+    while (current && level < 20) {
 
         UIWindow *window = nil;
 
@@ -61,7 +106,8 @@ static void SHADumpViewChain(UIView *view, NSString *title) {
              @" frame: %@\n"
              @" bounds: %@\n"
              @" center: (%.2f, %.2f)\n"
-             @" hidden: %@ alpha: %.3f\n"
+             @" hidden: %@\n"
+             @" alpha: %.3f\n"
              @" window: %@ <%p>\n",
             (long)level,
             SHAClassName(current),
@@ -77,93 +123,130 @@ static void SHADumpViewChain(UIView *view, NSString *title) {
         ];
 
         if (@available(iOS 11.0, *)) {
+
+            UIEdgeInsets safe = current.safeAreaInsets;
+
             [out appendFormat:
-                @" safeAreaInsets: top=%.2f left=%.2f bottom=%.2f right=%.2f\n",
-                current.safeAreaInsets.top,
-                current.safeAreaInsets.left,
-                current.safeAreaInsets.bottom,
-                current.safeAreaInsets.right
+                @" safeAreaInsets: "
+                 @"top=%.2f "
+                 @"left=%.2f "
+                 @"bottom=%.2f "
+                 @"right=%.2f\n",
+                safe.top,
+                safe.left,
+                safe.bottom,
+                safe.right
             ];
         }
 
-        if (current.superview) {
+        UIView *superview = current.superview;
+
+        if (superview) {
             [out appendFormat:
                 @" superview: %@ <%p>\n",
-                SHAClassName(current.superview),
-                current.superview
+                SHAClassName(superview),
+                superview
             ];
         } else {
-            [out appendString:@" superview: (nil)\n"];
+            [out appendString:
+                @" superview: (nil)\n"
+            ];
         }
 
-        NSArray *constraintsV =
-            [current constraintsAffectingLayoutForAxis:UILayoutConstraintAxisVertical];
+        NSArray *verticalConstraints =
+            [current constraintsAffectingLayoutForAxis:
+                UILayoutConstraintAxisVertical];
 
-        if (constraintsV.count > 0) {
-            [out appendFormat:@" vertical constraints: %lu\n",
-                (unsigned long)constraintsV.count];
+        if (verticalConstraints.count > 0) {
 
-            NSUInteger max = MIN(constraintsV.count, 12);
+            [out appendFormat:
+                @" vertical constraints: %lu\n",
+                (unsigned long)verticalConstraints.count
+            ];
+
+            NSUInteger max =
+                MIN(verticalConstraints.count, 20);
 
             for (NSUInteger i = 0; i < max; i++) {
+
                 [out appendFormat:
                     @"   V[%lu] %@\n",
                     (unsigned long)i,
-                    constraintsV[i]
+                    verticalConstraints[i]
                 ];
             }
         }
 
-        current = current.superview;
+        current = superview;
         level++;
     }
 
     SHAWrite(out);
 }
 
+
 static void SHAHeader(void) {
+
     SHAWrite(
         @"\n\n"
          "##################################################\n"
          "# SHA LIVE GEOMETRY DIAGNOSTIC\n"
          "##################################################\n"
-         "# NO GEOMETRY IS MODIFIED BY THIS BUILD\n"
+         "# THIS BUILD DOES NOT MODIFY GEOMETRY\n"
          "##################################################\n"
     );
 }
 
 
 // ==================================================
-// HOME BAR
+// HOME BAR — ROTATION VIEW
 // ==================================================
 
 %hook SBHomeGrabberRotationView
 
 - (void)layoutSubviews {
+
     %orig;
 
     static BOOL dumped = NO;
 
     if (!dumped) {
+
         dumped = YES;
 
         SHADumpViewChain(
-            self,
+            (id)self,
             @"LIVE HOME BAR - SBHomeGrabberRotationView"
         );
 
         @try {
-            UIView *grabber = [self performSelector:@selector(grabberView)];
 
-            if (grabber) {
-                SHADumpViewChain(
-                    grabber,
-                    @"LIVE HOME BAR - grabberView"
-                );
+            SEL selector =
+                NSSelectorFromString(@"grabberView");
+
+            if ([self respondsToSelector:selector]) {
+
+                id grabber =
+                    ((id (*)(id, SEL))
+                        objc_msgSend)(
+                            (id)self,
+                            selector
+                        );
+
+                if (grabber) {
+
+                    SHADumpViewChain(
+                        grabber,
+                        @"LIVE HOME BAR - grabberView"
+                    );
+                }
             }
         }
         @catch (...) {
-            SHAWrite(@"\n[HOME] grabberView exception\n");
+
+            SHAWrite(
+                @"\n[HOME] grabberView exception\n"
+            );
         }
     }
 }
@@ -172,21 +255,23 @@ static void SHAHeader(void) {
 
 
 // ==================================================
-// HOME BAR CONTAINER
+// HOME BAR — MAIN VIEW
 // ==================================================
 
 %hook SBHomeGrabberView
 
 - (void)layoutSubviews {
+
     %orig;
 
     static BOOL dumped = NO;
 
     if (!dumped) {
+
         dumped = YES;
 
         SHADumpViewChain(
-            self,
+            (id)self,
             @"LIVE HOME BAR - SBHomeGrabberView"
         );
     }
@@ -196,21 +281,23 @@ static void SHAHeader(void) {
 
 
 // ==================================================
-// STATUS BAR ROOT VIEW
+// STATUS BAR — MAIN DISPLAY VIEW
 // ==================================================
 
 %hook SBMainDisplaySceneLayoutStatusBarView
 
 - (void)layoutSubviews {
+
     %orig;
 
     static BOOL dumped = NO;
 
     if (!dumped) {
+
         dumped = YES;
 
         SHADumpViewChain(
-            self,
+            (id)self,
             @"LIVE STATUS BAR - SBMainDisplaySceneLayoutStatusBarView"
         );
     }
@@ -220,21 +307,23 @@ static void SHAHeader(void) {
 
 
 // ==================================================
-// STATUS BAR CONTAINER
+// STATUS BAR — CONTAINER
 // ==================================================
 
 %hook SBStatusBarContainer
 
 - (void)layoutSubviews {
+
     %orig;
 
     static BOOL dumped = NO;
 
     if (!dumped) {
+
         dumped = YES;
 
         SHADumpViewChain(
-            self,
+            (id)self,
             @"LIVE STATUS BAR - SBStatusBarContainer"
         );
     }
@@ -244,21 +333,23 @@ static void SHAHeader(void) {
 
 
 // ==================================================
-// UIKit STATUS BAR
+// STATUS BAR — UIKIT
 // ==================================================
 
 %hook _UIStatusBar
 
 - (void)layoutSubviews {
+
     %orig;
 
     static BOOL dumped = NO;
 
     if (!dumped) {
+
         dumped = YES;
 
         SHADumpViewChain(
-            self,
+            (id)self,
             @"LIVE STATUS BAR - _UIStatusBar"
         );
     }
@@ -275,8 +366,12 @@ static void SHAHeader(void) {
 
     @autoreleasepool {
 
-        if (![[NSBundle mainBundle].bundleIdentifier
-              isEqualToString:@"com.apple.springboard"]) {
+        NSString *bundleID =
+            [[NSBundle mainBundle] bundleIdentifier];
+
+        if (![bundleID
+            isEqualToString:@"com.apple.springboard"]) {
+
             return;
         }
 
@@ -285,7 +380,8 @@ static void SHAHeader(void) {
         %init;
 
         SHAWrite(
-            @"\n[+] StatusHomeBarAdjuster diagnostic loaded successfully.\n"
+            @"\n"
+             "[+] SHA diagnostic loaded successfully.\n"
         );
     }
 }
