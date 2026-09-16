@@ -8,7 +8,7 @@
 static CGFloat SHAGetStatusBarHeight(void)
 {
     /*
-     * Giá trị trong Settings là chiều cao thực tế:
+     * Giá trị trong Settings là CHIỀU CAO THỰC TẾ:
      *
      * 0   = 0 px
      * 10  = 10 px
@@ -77,19 +77,27 @@ static CGFloat SHAGetStatusBarHeight(void)
  * UIApplicationSceneSettings
  * ============================================================
  *
- * Đây là cơ chế của baseline 1.2.2.
+ * Đây vẫn là baseline 1.2.2.
  *
  * Không:
  * - CATransform3D
- * - scale Status Bar
  * - setFrame:
  * - hook _UIStatusBar
- * - hook Home Bar
  * - hook SBHomeGrabberView
+ * - hook Home Bar
+ *
+ * Chỉ điều chỉnh các giá trị layout mà SpringBoard/UIKit
+ * đã có sẵn cho Status Bar.
  */
 
 %hook UIApplicationSceneSettings
 
+
+/*
+ * ------------------------------------------------------------
+ * 1. Status Bar height
+ * ------------------------------------------------------------
+ */
 
 - (double)statusBarHeight
 {
@@ -97,17 +105,17 @@ static CGFloat SHAGetStatusBarHeight(void)
 }
 
 
+/*
+ * ------------------------------------------------------------
+ * 2. Default Status Bar height
+ * ------------------------------------------------------------
+ */
+
 - (double)defaultStatusBarHeightForOrientation:(long long)orientation
 {
     /*
-     * UIInterfaceOrientation:
-     *
-     * 1 = Portrait
-     * 2 = PortraitUpsideDown
-     * 3 = LandscapeLeft
-     * 4 = LandscapeRight
+     * Portrait
      */
-
     if (orientation == UIInterfaceOrientationPortrait ||
         orientation == UIInterfaceOrientationPortraitUpsideDown) {
 
@@ -116,9 +124,106 @@ static CGFloat SHAGetStatusBarHeight(void)
 
 
     /*
-     * Landscape giữ nguyên giá trị hệ thống.
+     * Landscape giữ nguyên hệ thống.
      */
     return %orig;
+}
+
+
+/*
+ * ------------------------------------------------------------
+ * 3. Status Bar avoidance frame
+ * ------------------------------------------------------------
+ *
+ * Đây là phần mà bản trước còn thiếu.
+ *
+ * statusBarHeight chỉ nói cho Status Bar biết nó cao bao nhiêu.
+ *
+ * statusBarAvoidanceFrame mới cho hệ thống biết:
+ *
+ *     "Nội dung phía dưới phải tránh vùng này."
+ *
+ */
+
+- (CGRect)statusBarAvoidanceFrame
+{
+    CGRect frame = %orig;
+
+    CGFloat height = SHAGetStatusBarHeight();
+
+
+    /*
+     * Xác định Portrait bằng hình dạng frame.
+     *
+     * iPhone 11 Pro Max Portrait:
+     *
+     * width  ≈ 428
+     * height ≈ 49
+     *
+     * Landscape:
+     *
+     * width  > height
+     *
+     * Không cần truy cập self.window, tránh lỗi
+     * forward declaration như bản trước.
+     */
+
+    if (frame.size.width > frame.size.height) {
+        return frame;
+    }
+
+
+    /*
+     * Giữ cạnh TOP cố định.
+     *
+     * Chỉ thay chiều cao.
+     */
+    frame.origin.y = 0.0;
+    frame.size.height = height;
+
+
+    return frame;
+}
+
+
+/*
+ * ------------------------------------------------------------
+ * 4. Portrait safe area
+ * ------------------------------------------------------------
+ *
+ * Đây là phần rất quan trọng đối với:
+ *
+ *     content
+ *     navigation bar
+ *     app layout
+ *     SpringBoard layout
+ *
+ * Khi Status Bar tăng:
+ *
+ *     safeArea.top tăng
+ *
+ * Khi Status Bar giảm:
+ *
+ *     safeArea.top giảm
+ *
+ */
+
+- (UIEdgeInsets)safeAreaInsetsPortrait
+{
+    UIEdgeInsets insets = %orig;
+
+    CGFloat height = SHAGetStatusBarHeight();
+
+
+    /*
+     * Chỉ thay TOP.
+     *
+     * LEFT / RIGHT / BOTTOM giữ nguyên hệ thống.
+     */
+    insets.top = height;
+
+
+    return insets;
 }
 
 
@@ -131,6 +236,7 @@ static CGFloat SHAGetStatusBarHeight(void)
  * ============================================================
  *
  * Chỉ SpringBoard.
+ * Không inject vào ứng dụng bên thứ ba.
  */
 
 %ctor
