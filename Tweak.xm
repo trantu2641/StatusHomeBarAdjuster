@@ -1,5 +1,5 @@
-#import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
 
 #define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
 #define SHA_STATUS_BAR_HEIGHT "StatusBarHeight"
@@ -45,17 +45,6 @@ static CGFloat SHAGetStatusBarHeight(void)
     }
 
 
-    /*
-     * Giá trị Settings là chiều cao thực tế:
-     *
-     * 0   = 0 px
-     * 10  = 10 px
-     * 20  = 20 px
-     * 30  = 30 px
-     * 49  = 49 px
-     * 120 = 120 px
-     */
-
     if (height < 0.0) {
         height = 0.0;
     }
@@ -74,127 +63,109 @@ static CGFloat SHAGetStatusBarHeight(void)
  * _UIStatusBar
  * ============================================================
  *
- * Không scale.
- * Không setFrame.
- * Không đổi bounds.
- * Không đụng Home Bar.
+ * Hướng mới:
  *
- * Chỉ thay avoidance frame.
+ * intrinsicContentSize
+ *
+ * Không:
+ * - CATransform3D
+ * - setFrame
+ * - bounds
+ * - center
+ * - avoidanceFrame
+ * - UIApplicationSceneSettings
+ * - Home Bar
+ */
+
+
+/*
+ * ------------------------------------------------------------
+ * Class method
+ *
+ * + intrinsicContentSizeForTargetScreen:
+ *     orientation:
+ *     onLockScreen:
+ * ------------------------------------------------------------
  */
 
 %hook _UIStatusBar
 
 
-- (void)setAvoidanceFrame:(CGRect)avoidanceFrame
++ (CGSize)intrinsicContentSizeForTargetScreen:(id)targetScreen
+                                   orientation:(long long)orientation
+                                  onLockScreen:(BOOL)onLockScreen
 {
-    /*
-     * Không truy cập self.window ở đây.
-     *
-     * Tránh lỗi:
-     *
-     * "property 'window' cannot be found in forward
-     *  class object '_UIStatusBar'"
-     *
-     *
-     * Phân biệt Portrait / Landscape dựa trên frame.
-     *
-     * Portrait:
-     *     width  > height
-     *
-     * Landscape:
-     *     width  < height
-     *
-     * Tuy nhiên avoidance frame có thể có kích thước
-     * đặc biệt tùy trạng thái SpringBoard, vì vậy chỉ
-     * sửa khi frame hợp lý cho vùng Status Bar phía trên.
-     */
-
-    CGFloat width = avoidanceFrame.size.width;
-    CGFloat height = avoidanceFrame.size.height;
+    CGSize original =
+        %orig(
+            targetScreen,
+            orientation,
+            onLockScreen
+        );
 
 
     /*
-     * Nếu frame có chiều ngang lớn hơn chiều cao,
-     * đây là dạng vùng Status Bar Portrait thông thường.
-     *
-     * Nếu không, giữ nguyên để tránh tác động Landscape.
+     * Portrait
      */
-    if (width <= height) {
-        %orig(avoidanceFrame);
-        return;
+    if (orientation == UIInterfaceOrientationPortrait ||
+        orientation == UIInterfaceOrientationPortraitUpsideDown) {
+
+        CGFloat customHeight =
+            SHAGetStatusBarHeight();
+
+        /*
+         * Chỉ thay HEIGHT.
+         *
+         * Width giữ nguyên hệ thống.
+         */
+        original.height =
+            customHeight;
     }
 
 
-    CGFloat customHeight =
-        SHAGetStatusBarHeight();
-
-
-    CGRect customFrame =
-        avoidanceFrame;
-
-
     /*
-     * TOP cố định.
+     * Landscape:
+     * giữ nguyên intrinsic size gốc.
      */
-    customFrame.origin.y = 0.0;
 
-
-    /*
-     * BOTTOM thay đổi theo Settings.
-     */
-    customFrame.size.height =
-        customHeight;
-
-
-    %orig(customFrame);
+    return original;
 }
 
 
-- (void)setAvoidanceFrame:(CGRect)avoidanceFrame
-     animationSettings:(id)animationSettings
-               options:(NSUInteger)options
-{
-    CGFloat width =
-        avoidanceFrame.size.width;
+/*
+ * ------------------------------------------------------------
+ * Class method có isAzulBLinked
+ * ------------------------------------------------------------
+ */
 
-    CGFloat height =
-        avoidanceFrame.size.height;
++ (CGSize)intrinsicContentSizeForTargetScreen:(id)targetScreen
+                                   orientation:(long long)orientation
+                                  onLockScreen:(BOOL)onLockScreen
+                              isAzulBLinked:(BOOL)isAzulBLinked
+{
+    CGSize original =
+        %orig(
+            targetScreen,
+            orientation,
+            onLockScreen,
+            isAzulBLinked
+        );
 
 
     /*
-     * Giữ Landscape nguyên bản.
+     * Chỉ Portrait.
      */
-    if (width <= height) {
+    if (orientation == UIInterfaceOrientationPortrait ||
+        orientation == UIInterfaceOrientationPortraitUpsideDown) {
 
-        %orig(
-            avoidanceFrame,
-            animationSettings,
-            options
-        );
+        CGFloat customHeight =
+            SHAGetStatusBarHeight();
 
-        return;
+        original.height =
+            customHeight;
     }
 
 
-    CGFloat customHeight =
-        SHAGetStatusBarHeight();
-
-
-    CGRect customFrame =
-        avoidanceFrame;
-
-
-    customFrame.origin.y = 0.0;
-
-    customFrame.size.height =
-        customHeight;
-
-
-    %orig(
-        customFrame,
-        animationSettings,
-        options
-    );
+    return original;
 }
 
 
