@@ -1,105 +1,184 @@
-#import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <CoreFoundation/CoreFoundation.h>
+#import <UIKit/UIKit.h>
 
-#pragma mark -
-#pragma mark Preferences
-#pragma mark -
+#define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
+#define SHA_STATUS_BAR_HEIGHT_KEY "StatusBarHeight"
 
-static CGFloat SHAStatusBarHeight(void)
+static CGFloat SHAGetStatusBarHeight(void)
 {
-    CFStringRef domain =
-        CFSTR("com.congtu.statushomebaradjuster");
-
     /*
-     * Đồng bộ Preferences trước khi đọc.
+     * 1.2.2 baseline:
+     *
+     * Settings lưu:
+     *     StatusBarHeight
+     *
+     * Giá trị người dùng nhập:
+     *     0 - 120 px
+     *
+     * Không phải offset.
      */
-    CFPreferencesAppSynchronize(domain);
+
+    CFPreferencesAppSynchronize(
+        CFSTR(SHA_PREFS_DOMAIN)
+    );
 
     CFPropertyListRef value =
         CFPreferencesCopyAppValue(
-            CFSTR("StatusBarHeight"),
-            domain
+            CFSTR(SHA_STATUS_BAR_HEIGHT_KEY),
+            CFSTR(SHA_PREFS_DOMAIN)
         );
 
     CGFloat height = 30.0;
 
-    if (value)
-    {
-        /*
-         * PSEditTextCell có thể lưu NSString,
-         * còn RootListController có thể lưu NSNumber.
-         *
-         * Hỗ trợ cả hai.
-         */
-        if (CFGetTypeID(value) == CFNumberGetTypeID())
-        {
-            double number = 30.0;
-
-            if (CFNumberGetValue(
-                    (CFNumberRef)value,
-                    kCFNumberDoubleType,
-                    &number))
-            {
-                height = (CGFloat)number;
-            }
-        }
-        else if (CFGetTypeID(value) == CFStringGetTypeID())
-        {
-            height =
-                (CGFloat)CFStringGetDoubleValue(
-                    (CFStringRef)value
-                );
-        }
-
-        CFRelease(value);
+    if (value == NULL) {
+        return height;
     }
 
-    /*
-     * Giới hạn đúng yêu cầu:
-     *
-     * 0   = ẩn
-     * 30  = mặc định
-     * 120 = tối đa
-     */
-    if (height < 0.0)
-        height = 0.0;
 
-    if (height > 120.0)
+    /*
+     * NSNumber
+     */
+    if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+
+        double number = 30.0;
+
+        Boolean success =
+            CFNumberGetValue(
+                (CFNumberRef)value,
+                kCFNumberDoubleType,
+                &number
+            );
+
+        if (success) {
+            height = (CGFloat)number;
+        }
+    }
+
+
+    /*
+     * NSString
+     *
+     * PSEditTextCell thường có thể lưu
+     * giá trị dưới dạng NSString.
+     */
+    else if (CFGetTypeID(value) == CFStringGetTypeID()) {
+
+        height =
+            (CGFloat)CFStringGetDoubleValue(
+                (CFStringRef)value
+            );
+    }
+
+
+    CFRelease(value);
+
+
+    /*
+     * Clamp đúng 0 - 120 px.
+     */
+    if (height < 0.0) {
+        height = 0.0;
+    }
+
+    if (height > 120.0) {
         height = 120.0;
+    }
+
 
     return height;
 }
 
-#pragma mark -
-#pragma mark UIApplicationSceneSettings
-#pragma mark -
+
+/*
+ * ============================================================
+ * UIApplicationSceneSettings
+ * ============================================================
+ *
+ * Đây là đúng hướng của bản 1.2.2.
+ *
+ * Không:
+ * - scale Status Bar
+ * - đổi frame Status Bar
+ * - đổi icon
+ * - đổi Home Bar
+ * - hook SBHomeGrabberView
+ */
 
 %hook UIApplicationSceneSettings
 
-- (CGFloat)defaultStatusBarHeightForOrientation:(NSInteger)orientation
+
+/*
+ * Status Bar height hiện tại.
+ *
+ * Settings:
+ *
+ * 0   -> 0 px
+ * 10  -> 10 px
+ * 20  -> 20 px
+ * 30  -> 30 px
+ * 49  -> 49 px
+ * 60  -> 60 px
+ * 100 -> 100 px
+ * 120 -> 120 px
+ */
+
+- (double)statusBarHeight
+{
+    return (double)SHAGetStatusBarHeight();
+}
+
+
+/*
+ * Default Status Bar height theo orientation.
+ *
+ * Chỉ thay Portrait.
+ *
+ * Landscape trả lại giá trị gốc.
+ */
+
+- (double)defaultStatusBarHeightForOrientation:(long long)orientation
 {
     /*
-     * Chỉ Portrait.
+     * UIInterfaceOrientation:
+     *
+     * 1 = Portrait
+     * 2 = PortraitUpsideDown
+     * 3 = LandscapeLeft
+     * 4 = LandscapeRight
      */
-    if (orientation != UIInterfaceOrientationPortrait &&
-        orientation != UIInterfaceOrientationPortraitUpsideDown)
-    {
-        return %orig;
+
+    if (orientation == UIInterfaceOrientationPortrait ||
+        orientation == UIInterfaceOrientationPortraitUpsideDown) {
+
+        return (double)SHAGetStatusBarHeight();
     }
 
-    return SHAStatusBarHeight();
+
+    return %orig;
 }
 
-- (CGFloat)statusBarHeight
-{
-    /*
-     * Giữ cùng một giá trị cho API statusBarHeight.
-     *
-     * Một số thành phần SpringBoard lấy chiều cao
-     * qua method này thay vì defaultStatusBarHeightForOrientation:.
-     */
-    return SHAStatusBarHeight();
-}
 
 %end
+
+
+/*
+ * ============================================================
+ * Constructor
+ * ============================================================
+ *
+ * Chỉ SpringBoard.
+ */
+
+%ctor
+{
+    NSString *bundleID =
+        [[NSBundle mainBundle] bundleIdentifier];
+
+
+    if (![bundleID isEqualToString:@"com.apple.springboard"]) {
+        return;
+    }
+
+
+    %init;
+}
