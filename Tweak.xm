@@ -49,6 +49,7 @@ static BOOL SHAPortrait(void)
     UIApplication *app = UIApplication.sharedApplication;
 
     for (UIScene *scene in app.connectedScenes) {
+
         if (![scene isKindOfClass:[UIWindowScene class]])
             continue;
 
@@ -73,6 +74,94 @@ static BOOL SHAPortraitOrientation(UIInterfaceOrientation orientation)
 {
     return orientation == UIInterfaceOrientationPortrait ||
            orientation == UIInterfaceOrientationPortraitUpsideDown;
+}
+
+#pragma mark - Status Bar content positioning
+
+/*
+ * iOS có xu hướng giữ minimum height ~30pt cho UIStatusBar.
+ *
+ * Ta không scale icon.
+ *
+ * Khi vùng Status Bar thay đổi:
+ *
+ *     height = 60
+ *
+ * content được đặt gần đáy:
+ *
+ *     ┌────────────────────┐
+ *     │                    │
+ *     │                    │
+ *     │       ICONS        │
+ *     └────────────────────┘
+ *
+ * Khi:
+ *
+ *     height = 10
+ *
+ * content vẫn giữ kích thước gốc nhưng được dịch
+ * theo cạnh dưới của vùng Status Bar.
+ */
+
+static void SHAMoveStatusContent(UIView *statusBar,
+                                  CGFloat newHeight)
+{
+    if (!statusBar)
+        return;
+
+    /*
+     * Không làm gì nếu iOS đang layout một view
+     * không có chiều cao hợp lệ.
+     */
+    if (statusBar.bounds.size.height <= 0.0)
+        return;
+
+    CGFloat oldHeight = statusBar.bounds.size.height;
+
+    /*
+     * Duyệt các direct subview của _UIStatusBar.
+     *
+     * Không scale.
+     * Chỉ dịch Y để content bám theo cạnh dưới.
+     */
+    for (UIView *view in statusBar.subviews) {
+
+        NSString *name = NSStringFromClass(view.class);
+
+        /*
+         * Bỏ qua các container có khả năng là background/
+         * overlay toàn vùng.
+         */
+        if ([name containsString:@"Background"] ||
+            [name containsString:@"Backdrop"]) {
+            continue;
+        }
+
+        CGRect frame = view.frame;
+
+        /*
+         * Chỉ dịch content theo chênh lệch chiều cao.
+         *
+         * Ví dụ:
+         *
+         * old = 30
+         * new = 60
+         * delta = +30
+         *
+         * old = 30
+         * new = 10
+         * delta = -20
+         */
+        CGFloat delta = newHeight - oldHeight;
+
+        /*
+         * Các container content thường có anchor ở trên.
+         * Đưa chúng xuống theo delta.
+         */
+        frame.origin.y += delta;
+
+        view.frame = frame;
+    }
 }
 
 #pragma mark - UIApplicationSceneSettings
@@ -127,6 +216,12 @@ static BOOL SHAPortraitOrientation(UIInterfaceOrientation orientation)
     return insets;
 }
 
+/*
+ * Đây là metric liên quan trực tiếp tới vùng
+ * Home Affordance.
+ *
+ * Không thay frame của pill.
+ */
 - (CGFloat)homeAffordanceOverlayAllowance
 {
     if (SHAPortrait())
@@ -169,6 +264,7 @@ static BOOL SHAPortraitOrientation(UIInterfaceOrientation orientation)
                  toSceneWithIdentifier:(NSString *)identifier
 {
     if (SHAPortrait()) {
+
         frame.origin.y = 0.0;
         frame.size.height = SHAStatusHeight();
 
@@ -183,10 +279,49 @@ static BOOL SHAPortraitOrientation(UIInterfaceOrientation orientation)
 didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
 {
     if (SHAPortrait()) {
+
         frame.origin.y = 0.0;
         frame.size.height = SHAStatusHeight();
 
         %orig(identifier, frame);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)statusBar:(id)statusBar
+didAnimateFromHeight:(CGFloat)oldHeight
+          toHeight:(CGFloat)newHeight
+         animation:(id)animation
+{
+    if (SHAPortrait()) {
+
+        CGFloat height = SHAStatusHeight();
+
+        %orig(statusBar, oldHeight, height, animation);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)statusBar:(id)statusBar
+willAnimateFromHeight:(CGFloat)oldHeight
+           toHeight:(CGFloat)newHeight
+          duration:(CGFloat)duration
+          animation:(id)animation
+{
+    if (SHAPortrait()) {
+
+        CGFloat height = SHAStatusHeight();
+
+        %orig(statusBar,
+              oldHeight,
+              height,
+              duration,
+              animation);
+
         return;
     }
 
@@ -200,13 +335,10 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
     if (!SHAPortraitOrientation(orientation))
         return;
 
-    UIView *container = (UIView *)self;
     CGFloat height = SHAStatusHeight();
 
-    /*
-     * Tìm UIStatusBar_Modern / _UIStatusBar
-     * nhưng không thay đổi icon riêng lẻ.
-     */
+    UIView *container = (UIView *)self;
+
     for (UIView *view in container.subviews) {
 
         NSString *name = NSStringFromClass(view.class);
@@ -219,6 +351,16 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
             frame.size.height = height;
 
             view.frame = frame;
+
+            /*
+             * Quan trọng:
+             * lấy UIStatusBar thực tế rồi dịch content.
+             */
+            if ([name containsString:@"Modern"] ||
+                [name isEqualToString:@"_UIStatusBar"]) {
+
+                SHAMoveStatusContent(view, height);
+            }
         }
     }
 }
@@ -230,8 +372,9 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
     if (!SHAPortraitOrientation(orientation))
         return;
 
-    UIView *container = (UIView *)self;
     CGFloat height = SHAStatusHeight();
+
+    UIView *container = (UIView *)self;
 
     for (UIView *view in container.subviews) {
 
@@ -245,6 +388,12 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
             frame.size.height = height;
 
             view.frame = frame;
+
+            if ([name containsString:@"Modern"] ||
+                [name isEqualToString:@"_UIStatusBar"]) {
+
+                SHAMoveStatusContent(view, height);
+            }
         }
     }
 }
@@ -261,7 +410,10 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
                                 isAzulBLinked:(BOOL)azul
 {
     CGSize size =
-        %orig(screen, orientation, lockScreen, azul);
+        %orig(screen,
+              orientation,
+              lockScreen,
+              azul);
 
     if (SHAPortraitOrientation(orientation))
         size.height = SHAStatusHeight();
@@ -274,7 +426,9 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
                                   onLockScreen:(BOOL)lockScreen
 {
     CGSize size =
-        %orig(screen, orientation, lockScreen);
+        %orig(screen,
+              orientation,
+              lockScreen);
 
     if (SHAPortraitOrientation(orientation))
         size.height = SHAStatusHeight();
@@ -292,9 +446,37 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
     return size;
 }
 
+- (void)layoutSubviews
+{
+    %orig;
+
+    if (!SHAPortrait())
+        return;
+
+    UIView *statusBar = (UIView *)self;
+
+    CGFloat height = SHAStatusHeight();
+
+    CGRect frame = statusBar.frame;
+
+    /*
+     * Ép lại height sau Auto Layout.
+     *
+     * Điều này đặc biệt quan trọng với giá trị <30,
+     * vì iOS có encapsulated height constraint.
+     */
+    frame.origin.y = 0.0;
+    frame.size.height = height;
+
+    statusBar.frame = frame;
+
+    SHAMoveStatusContent(statusBar, height);
+}
+
 - (void)setAvoidanceFrame:(CGRect)frame
 {
     if (SHAPortrait()) {
+
         frame.origin.y = 0.0;
         frame.size.height = SHAStatusHeight();
 
@@ -310,6 +492,7 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
                  options:(NSUInteger)options
 {
     if (SHAPortrait()) {
+
         frame.origin.y = 0.0;
         frame.size.height = SHAStatusHeight();
 
@@ -322,33 +505,35 @@ didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
 
 %end
 
-#pragma mark - SBDeviceApplicationSceneView
-
-%hook SBDeviceApplicationSceneView
-
-- (UIEdgeInsets)safeAreaInsets
-{
-    UIEdgeInsets insets = %orig;
-
-    if (SHAPortrait())
-        insets.bottom = SHAHomeHeight();
-
-    return insets;
-}
-
-%end
-
-#pragma mark - Home Grabber
+#pragma mark - SBHomeGrabberView
 
 %hook SBHomeGrabberView
 
 /*
- * Không thay đổi grabberFrameForBounds:
+ * KHÔNG hook grabberFrameForBounds:
  *
- * Home Indicator / gesture area giữ nguyên.
- * Home Bar height được điều khiển thông qua
- * homeAffordanceOverlayAllowance + safe area.
+ * Không scale.
+ * Không di chuyển.
+ * Không thay đổi kích thước Home Indicator.
+ *
+ * Gesture area của iOS được giữ nguyên.
  */
+
+- (void)layoutSubviews
+{
+    %orig;
+}
+
+%end
+
+#pragma mark - SBHomeGrabberRotationView
+
+%hook SBHomeGrabberRotationView
+
+- (void)layoutSubviews
+{
+    %orig;
+}
 
 %end
 
