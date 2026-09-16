@@ -1,431 +1,439 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <objc/message.h>
 #import <objc/runtime.h>
 
 #pragma mark - Preferences
 
-static NSString * const kStatusBarKey = @"StatusBarHeight";
-static NSString * const kHomeBarKey   = @"HomeBarHeight";
+static NSString * const kSHAPrefDomain = @"com.congtu.statushomebaradjuster";
+static NSString * const kSHAStatusKey  = @"StatusBarHeight";
+static NSString * const kSHAHomeKey    = @"HomeBarHeight";
 
-static CGFloat SHAClamp(CGFloat value)
-{
-    if (value < 0.0)
-        return 0.0;
+static CGFloat SHAReadValue(NSString *key, CGFloat fallback) {
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:kSHAPrefDomain];
 
-    if (value > 120.0)
-        return 120.0;
+    id obj = [defaults objectForKey:key];
 
-    return value;
-}
+    if ([obj isKindOfClass:[NSNumber class]]) {
+        CGFloat value = [obj doubleValue];
 
-static CGFloat SHAReadValue(NSString *key, CGFloat fallback)
-{
-    NSUserDefaults *defaults =
-        [NSUserDefaults standardUserDefaults];
+        if (isnan(value) || isinf(value))
+            return fallback;
 
-    id value =
-        [defaults objectForKey:key];
-
-    CGFloat result = fallback;
-
-    if ([value isKindOfClass:[NSNumber class]]) {
-
-        result = [(NSNumber *)value doubleValue];
-
-    } else if ([value isKindOfClass:[NSString class]]) {
-
-        result = [(NSString *)value doubleValue];
+        return MAX(0.0, MIN(120.0, value));
     }
 
-    return SHAClamp(result);
+    if ([obj isKindOfClass:[NSString class]]) {
+        CGFloat value = [(NSString *)obj doubleValue];
+
+        if (isnan(value) || isinf(value))
+            return fallback;
+
+        return MAX(0.0, MIN(120.0, value));
+    }
+
+    return fallback;
 }
 
-static CGFloat SHAStatusHeight(void)
-{
-    return SHAReadValue(kStatusBarKey, 30.0);
+static CGFloat SHAStatusHeight(void) {
+    return SHAReadValue(kSHAStatusKey, 30.0);
 }
 
-static CGFloat SHAHomeHeight(void)
-{
-    return SHAReadValue(kHomeBarKey, 30.0);
+static CGFloat SHAHomeHeight(void) {
+    return SHAReadValue(kSHAHomeKey, 30.0);
 }
 
 #pragma mark - Orientation
 
-static BOOL SHAPortraitOrientation(NSInteger orientation)
-{
-    return
-        orientation == UIInterfaceOrientationPortrait ||
-        orientation == UIInterfaceOrientationPortraitUpsideDown;
-}
+static BOOL SHAPortrait(void) {
+    UIApplication *app = UIApplication.sharedApplication;
 
-static BOOL SHAPortrait(void)
-{
-    /*
-     * Không dùng UIApplication.statusBarOrientation vì
-     * iOS 16 SDK đánh dấu deprecated và Theos đang dùng
-     * -Werror.
-     */
+    for (UIScene *scene in app.connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]])
+            continue;
 
-    UIWindowScene *scene = nil;
+        UIInterfaceOrientation o =
+            ((UIWindowScene *)scene).interfaceOrientation;
 
-    for (UIScene *candidate in
-         [UIApplication sharedApplication].connectedScenes) {
+        if (o == UIInterfaceOrientationPortrait ||
+            o == UIInterfaceOrientationPortraitUpsideDown) {
+            return YES;
+        }
 
-        if ([candidate isKindOfClass:[UIWindowScene class]]) {
-
-            UIWindowScene *windowScene =
-                (UIWindowScene *)candidate;
-
-            if (windowScene.activationState !=
-                UISceneActivationStateUnattached) {
-
-                scene = windowScene;
-                break;
-            }
+        if (o == UIInterfaceOrientationLandscapeLeft ||
+            o == UIInterfaceOrientationLandscapeRight) {
+            return NO;
         }
     }
 
-    if (scene) {
-
-        UIInterfaceOrientation orientation =
-            scene.interfaceOrientation;
-
-        if (orientation != UIInterfaceOrientationUnknown)
-            return SHAPortraitOrientation(orientation);
-    }
-
-    /*
-     * SpringBoard portrait mặc định cho thiết bị này.
-     */
     return YES;
 }
 
-#pragma mark - Status Bar
-
-%hook SBMainDisplaySceneLayoutStatusBarView
-
-- (CGRect)_statusBarFrameForOrientation:(NSInteger)orientation
-{
-    CGRect frame =
-        %orig(orientation);
-
-    if (!SHAPortraitOrientation(orientation))
-        return frame;
-
-    CGFloat height =
-        SHAStatusHeight();
-
-    /*
-     * TOP cố định.
-     * BOTTOM thay đổi theo height.
-     */
-    frame.origin.y = 0.0;
-    frame.size.height = height;
-
-    return frame;
+static BOOL SHAPortraitOrientation(UIInterfaceOrientation o) {
+    return o == UIInterfaceOrientationPortrait ||
+           o == UIInterfaceOrientationPortraitUpsideDown;
 }
 
-- (void)_layoutStatusBarForOrientation:(NSInteger)orientation
-{
-    /*
-     * Gọi layout gốc trước.
-     */
-    %orig(orientation);
+#pragma mark - Helpers
 
-    if (!SHAPortraitOrientation(orientation))
-        return;
+static CGRect SHAStatusFrame(CGRect original, CGFloat height) {
+    CGRect r = original;
 
-    /*
-     * Dùng id để tránh lỗi forward declaration.
-     */
-    id receiver = (id)self;
+    r.origin.y = 0.0;
+    r.size.height = height;
 
-    @try {
-
-        SEL selector =
-            NSSelectorFromString(
-                @"_statusBarFrameForOrientation:"
-            );
-
-        if (![receiver respondsToSelector:selector])
-            return;
-
-        CGRect frame =
-            ((CGRect (*)(id, SEL, NSInteger))
-                objc_msgSend)(
-                    receiver,
-                    selector,
-                    orientation
-                );
-
-        /*
-         * Không resize SBMainDisplaySceneLayoutStatusBarView.
-         * Diagnostic đã chứng minh nó là 428x926 full-screen.
-         *
-         * Chỉ tìm status-bar child thật sự.
-         */
-        UIView *root =
-            (UIView *)receiver;
-
-        for (UIView *subview in root.subviews) {
-
-            NSString *className =
-                NSStringFromClass([subview class]);
-
-            if ([className isEqualToString:@"_UIStatusBar"] ||
-                [className isEqualToString:@"UIStatusBar_Modern"]) {
-
-                CGRect childFrame =
-                    subview.frame;
-
-                childFrame.origin.y = 0.0;
-                childFrame.size.height =
-                    frame.size.height;
-
-                subview.frame =
-                    childFrame;
-            }
-        }
-    }
-    @catch (__unused NSException *exception) {
-    }
+    return r;
 }
 
-- (CGRect)_statusBarAvoidanceFrame
-{
-    CGRect frame =
-        %orig;
+static UIEdgeInsets SHAReplaceTop(UIEdgeInsets insets, CGFloat top) {
+    insets.top = top;
+    return insets;
+}
 
-    if (!SHAPortrait())
-        return frame;
+static UIEdgeInsets SHAReplaceBottom(UIEdgeInsets insets, CGFloat bottom) {
+    insets.bottom = bottom;
+    return insets;
+}
 
-    frame.origin.y = 0.0;
-    frame.size.height =
-        SHAStatusHeight();
+#pragma mark - UIApplicationSceneSettings
 
-    return frame;
+%hook UIApplicationSceneSettings
+
+- (CGFloat)statusBarHeight {
+    if (SHAPortrait())
+        return SHAStatusHeight();
+
+    return %orig;
+}
+
+- (CGFloat)defaultStatusBarHeightForOrientation:(UIInterfaceOrientation)orientation {
+    if (SHAPortraitOrientation(orientation))
+        return SHAStatusHeight();
+
+    return %orig;
+}
+
+- (UIEdgeInsets)safeAreaInsetsPortrait {
+    UIEdgeInsets result = %orig;
+
+    if (SHAPortrait())
+        result = SHAReplaceTop(result, SHAStatusHeight());
+
+    return result;
+}
+
+- (UIEdgeInsets)safeAreaInsetsPortraitUpsideDown {
+    UIEdgeInsets result = %orig;
+
+    if (SHAPortrait())
+        result = SHAReplaceTop(result, SHAStatusHeight());
+
+    return result;
+}
+
+- (CGFloat)homeAffordanceOverlayAllowance {
+    if (SHAPortrait())
+        return SHAHomeHeight();
+
+    return %orig;
+}
+
+- (CGRect)statusBarAvoidanceFrame {
+    CGRect result = %orig;
+
+    if (SHAPortrait()) {
+        result.origin.y = 0.0;
+        result.size.height = SHAStatusHeight();
+    }
+
+    return result;
 }
 
 %end
 
-#pragma mark - UIKit Status Bar
+#pragma mark - SBMainDisplaySceneLayoutStatusBarView
+
+%hook SBMainDisplaySceneLayoutStatusBarView
+
+- (CGRect)_statusBarFrameForOrientation:(UIInterfaceOrientation)orientation {
+    CGRect result = %orig;
+
+    if (SHAPortraitOrientation(orientation)) {
+        result = SHAStatusFrame(result, SHAStatusHeight());
+    }
+
+    return result;
+}
+
+- (CGRect)_statusBarAvoidanceFrame {
+    CGRect result = %orig;
+
+    if (SHAPortrait()) {
+        result.origin.y = 0.0;
+        result.size.height = SHAStatusHeight();
+    }
+
+    return result;
+}
+
+- (void)_applyStatusBarAvoidanceFrame:(CGRect)frame
+                 toSceneWithIdentifier:(NSString *)identifier {
+
+    if (SHAPortrait()) {
+        CGRect modified = frame;
+
+        modified.origin.y = 0.0;
+        modified.size.height = SHAStatusHeight();
+
+        %orig(modified, identifier);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)sceneWithIdentifier:(NSString *)identifier
+didChangeStatusBarAvoidanceFrameTo:(CGRect)frame {
+
+    if (SHAPortrait()) {
+        CGRect modified = frame;
+
+        modified.origin.y = 0.0;
+        modified.size.height = SHAStatusHeight();
+
+        %orig(identifier, modified);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)statusBar:(id)statusBar
+didAnimateFromHeight:(CGFloat)oldHeight
+          toHeight:(CGFloat)newHeight
+         animation:(id)animation {
+
+    if (SHAPortrait()) {
+        CGFloat h = SHAStatusHeight();
+
+        %orig(statusBar, oldHeight, h, animation);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)statusBar:(id)statusBar
+willAnimateFromHeight:(CGFloat)oldHeight
+           toHeight:(CGFloat)newHeight
+          duration:(CGFloat)duration
+          animation:(id)animation {
+
+    if (SHAPortrait()) {
+        CGFloat h = SHAStatusHeight();
+
+        %orig(statusBar, oldHeight, h, duration, animation);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)_layoutStatusBarForOrientation:(UIInterfaceOrientation)orientation {
+    %orig;
+
+    if (!SHAPortraitOrientation(orientation))
+        return;
+
+    CGFloat h = SHAStatusHeight();
+
+    NSArray *children = self.subviews;
+
+    for (UIView *view in children) {
+        NSString *name = NSStringFromClass(view.class);
+
+        if ([name containsString:@"UIStatusBar"]) {
+            CGRect frame = view.frame;
+
+            frame.origin.y = 0.0;
+            frame.size.height = h;
+
+            view.frame = frame;
+        }
+    }
+}
+
+- (void)layoutStatusBarForSpringBoardRotationToOrientation:(UIInterfaceOrientation)orientation {
+    %orig;
+
+    if (!SHAPortraitOrientation(orientation))
+        return;
+
+    CGFloat h = SHAStatusHeight();
+
+    for (UIView *view in self.subviews) {
+        NSString *name = NSStringFromClass(view.class);
+
+        if ([name containsString:@"UIStatusBar"]) {
+            CGRect frame = view.frame;
+
+            frame.origin.y = 0.0;
+            frame.size.height = h;
+
+            view.frame = frame;
+        }
+    }
+}
+
+%end
+
+#pragma mark - _UIStatusBar
 
 %hook _UIStatusBar
 
-- (CGSize)intrinsicContentSize
-{
-    CGSize size =
-        %orig;
++ (CGSize)intrinsicContentSizeForTargetScreen:(UIScreen *)screen
+                                   orientation:(UIInterfaceOrientation)orientation
+                                  onLockScreen:(BOOL)lockScreen
+                                isAzulBLinked:(BOOL)azul {
 
-    if (!SHAPortrait())
-        return size;
+    CGSize result =
+        %orig(screen, orientation, lockScreen, azul);
 
-    size.height =
-        SHAStatusHeight();
+    if (SHAPortraitOrientation(orientation)) {
+        result.height = SHAStatusHeight();
+    }
 
-    return size;
+    return result;
 }
 
 + (CGSize)intrinsicContentSizeForTargetScreen:(UIScreen *)screen
-                                    orientation:(NSInteger)orientation
-                                  onLockScreen:(BOOL)lockScreen
-{
-    CGSize size =
-        %orig(
-            screen,
-            orientation,
-            lockScreen
-        );
+                                   orientation:(UIInterfaceOrientation)orientation
+                                  onLockScreen:(BOOL)lockScreen {
 
-    if (!SHAPortraitOrientation(orientation))
-        return size;
+    CGSize result =
+        %orig(screen, orientation, lockScreen);
 
-    size.height =
-        SHAStatusHeight();
+    if (SHAPortraitOrientation(orientation)) {
+        result.height = SHAStatusHeight();
+    }
 
-    return size;
+    return result;
 }
 
-+ (CGSize)intrinsicContentSizeForTargetScreen:(UIScreen *)screen
-                                    orientation:(NSInteger)orientation
-                                  onLockScreen:(BOOL)lockScreen
-                                  isAzulBLinked:(BOOL)isAzulBLinked
-{
-    CGSize size =
-        %orig(
-            screen,
-            orientation,
-            lockScreen,
-            isAzulBLinked
-        );
+- (CGSize)intrinsicContentSize {
+    CGSize result = %orig;
 
-    if (!SHAPortraitOrientation(orientation))
-        return size;
+    if (SHAPortrait())
+        result.height = SHAStatusHeight();
 
-    size.height =
-        SHAStatusHeight();
-
-    return size;
+    return result;
 }
 
-- (void)layoutSubviews
-{
+- (void)layoutSubviews {
     %orig;
 
     if (!SHAPortrait())
         return;
 
-    /*
-     * self là private class forward declaration,
-     * nên cast sang UIView trước khi dùng frame.
-     */
-    UIView *statusBar =
-        (UIView *)(id)self;
+    CGFloat h = SHAStatusHeight();
 
-    CGRect frame =
-        statusBar.frame;
+    CGRect frame = self.frame;
 
-    frame.origin.y = 0.0;
-    frame.size.height =
-        SHAStatusHeight();
+    if (fabs(frame.size.height - h) > 0.1) {
+        frame.origin.y = 0.0;
+        frame.size.height = h;
 
-    statusBar.frame =
-        frame;
+        self.frame = frame;
+    }
+}
+
+- (void)setAvoidanceFrame:(CGRect)frame {
+    if (SHAPortrait()) {
+        CGRect modified = frame;
+
+        modified.origin.y = 0.0;
+        modified.size.height = SHAStatusHeight();
+
+        %orig(modified);
+        return;
+    }
+
+    %orig;
+}
+
+- (void)setAvoidanceFrame:(CGRect)frame
+       animationSettings:(id)settings
+                 options:(NSUInteger)options {
+
+    if (SHAPortrait()) {
+        CGRect modified = frame;
+
+        modified.origin.y = 0.0;
+        modified.size.height = SHAStatusHeight();
+
+        %orig(modified, settings, options);
+        return;
+    }
+
+    %orig;
 }
 
 %end
 
-#pragma mark - Scene Settings
+#pragma mark - SBDeviceApplicationSceneView
+//
+// Không đụng frame của SBHomeGrabberView.
+// Chỉ thay bottom safe-area của vùng scene.
+//
 
-%hook UIApplicationSceneSettings
+%hook SBDeviceApplicationSceneView
 
-- (CGFloat)statusBarHeight
-{
-    if (!SHAPortrait())
-        return %orig;
+- (UIEdgeInsets)safeAreaInsets {
+    UIEdgeInsets result = %orig;
 
-    return SHAStatusHeight();
+    if (SHAPortrait()) {
+        result = SHAReplaceBottom(result, SHAHomeHeight());
+    }
+
+    return result;
 }
 
-- (CGFloat)defaultStatusBarHeightForOrientation:(NSInteger)orientation
-{
-    CGFloat value =
-        %orig(orientation);
-
-    if (!SHAPortraitOrientation(orientation))
-        return value;
-
-    return SHAStatusHeight();
-}
-
-- (UIEdgeInsets)safeAreaInsetsPortrait
-{
-    UIEdgeInsets insets =
-        %orig;
-
-    insets.top =
-        SHAStatusHeight();
-
-    return insets;
-}
-
-- (UIEdgeInsets)safeAreaInsetsPortraitUpsideDown
-{
-    UIEdgeInsets insets =
-        %orig;
-
-    insets.top =
-        SHAStatusHeight();
-
-    return insets;
-}
-
-- (CGRect)statusBarAvoidanceFrame
-{
-    CGRect frame =
-        %orig;
+- (void)safeAreaInsetsDidChange {
+    %orig;
 
     if (!SHAPortrait())
-        return frame;
+        return;
 
-    frame.origin.y = 0.0;
-    frame.size.height =
-        SHAStatusHeight();
-
-    return frame;
-}
-
-#pragma mark - Home Bar allowance
-
-- (CGFloat)homeAffordanceOverlayAllowance
-{
-    if (!SHAPortrait())
-        return %orig;
-
-    return SHAHomeHeight();
+    [self setNeedsLayout];
+    [self layoutIfNeeded];
 }
 
 %end
 
-#pragma mark - Home Bar
+#pragma mark - SBHomeGrabberView
+//
+// QUAN TRỌNG:
+// Không thay grabberFrameForBounds:
+// Không scale pill.
+// Không di chuyển pill.
+// Không thay gesture recognizer.
+//
 
 %hook SBHomeGrabberView
 
-- (CGRect)grabberFrameForBounds:(CGRect)bounds
-{
-    CGRect frame =
-        %orig(bounds);
-
-    if (!SHAPortrait())
-        return frame;
-
-    CGFloat requested =
-        SHAHomeHeight();
-
-    /*
-     * Không thay đổi chiều rộng của grabber.
-     *
-     * Home Bar giữ BOTTOM tại đáy màn hình.
-     */
-    if (requested <= 0.0) {
-
-        frame.origin.y =
-            CGRectGetHeight(bounds);
-
-        frame.size.height = 0.0;
-
-    } else {
-
-        /*
-         * Đây là vùng hình học Home Bar.
-         * Không scale transform.
-         */
-        frame.origin.y =
-            CGRectGetHeight(bounds) -
-            requested;
-
-        frame.size.height =
-            requested;
-    }
-
-    return frame;
+- (void)layoutSubviews {
+    %orig;
 }
 
 %end
 
-#pragma mark - Home Rotation Wrapper
+#pragma mark - SBHomeGrabberRotationView
+//
+// Giữ nguyên wrapper full-screen và gesture.
+//
 
 %hook SBHomeGrabberRotationView
 
-- (void)layoutSubviews
-{
-    /*
-     * RotationView là 428x926 full-screen wrapper.
-     *
-     * Tuyệt đối không resize nó.
-     */
+- (void)layoutSubviews {
     %orig;
 }
 
@@ -433,20 +441,13 @@ static BOOL SHAPortrait(void)
 
 #pragma mark - Constructor
 
-%ctor
-{
+%ctor {
     @autoreleasepool {
-
         NSString *bundleID =
-            [[NSBundle mainBundle]
-                bundleIdentifier];
+            NSBundle.mainBundle.bundleIdentifier;
 
-        if (![bundleID
-            isEqualToString:@"com.apple.springboard"]) {
-
-            return;
+        if ([bundleID isEqualToString:@"com.apple.springboard"]) {
+            %init;
         }
-
-        %init;
     }
 }
