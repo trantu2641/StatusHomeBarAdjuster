@@ -1,281 +1,166 @@
 #import <UIKit/UIKit.h>
-#import <QuartzCore/QuartzCore.h>
 #import <Foundation/Foundation.h>
 
-#define SHA_STATUS_BAR_PREFS @"StatusBarHeight"
+#define SHA_PREFS_DOMAIN @"com.congtu.statushomebaradjuster"
+#define SHA_STATUS_HEIGHT_KEY @"StatusBarHeight"
 
-static CGFloat SHAClamp(CGFloat value, CGFloat minValue, CGFloat maxValue) {
-    if (value < minValue) {
-        return minValue;
-    }
-
-    if (value > maxValue) {
-        return maxValue;
-    }
-
-    return value;
-}
-
-static CGFloat SHAStatusBarHeight(void) {
-    id value = [[NSUserDefaults standardUserDefaults]
-        objectForKey:SHA_STATUS_BAR_PREFS];
+static CGFloat SHAStatusBarHeight(void)
+{
+    CFPropertyListRef value = CFPreferencesCopyAppValue(
+        CFSTR(SHA_STATUS_HEIGHT_KEY),
+        CFSTR(SHA_PREFS_DOMAIN)
+    );
 
     CGFloat height = 30.0;
 
-    if ([value isKindOfClass:[NSNumber class]]) {
-        height = [(NSNumber *)value doubleValue];
-    }
-    else if ([value isKindOfClass:[NSString class]]) {
-        height = [(NSString *)value doubleValue];
+    if (value) {
+        if (CFGetTypeID(value) == CFNumberGetTypeID()) {
+            double number = 30.0;
+            CFNumberGetValue(
+                (CFNumberRef)value,
+                kCFNumberDoubleType,
+                &number
+            );
+            height = (CGFloat)number;
+        }
+        else if (CFGetTypeID(value) == CFStringGetTypeID()) {
+            height = (CGFloat)CFStringGetDoubleValue(
+                (CFStringRef)value
+            );
+        }
+
+        CFRelease(value);
     }
 
-    /*
-     * Giá trị Settings là CHIỀU CAO THỰC TẾ:
-     *
-     * 0   = 0 px
-     * 10  = 10 px
-     * 20  = 20 px
-     * 30  = 30 px
-     * 49  = 49 px
-     * 120 = 120 px
-     */
-    return SHAClamp(height, 0.0, 120.0);
+    if (height < 0.0)
+        height = 0.0;
+
+    if (height > 120.0)
+        height = 120.0;
+
+    return height;
 }
 
 
 /*
- * Dùng UIView * thay vì _UIStatusBar *
- * để tránh lỗi kiểu dữ liệu khi gọi từ %hook.
+ * UIApplicationSceneSettings
+ *
+ * Không thay đổi frame của Status Bar.
+ * Không scale Status Bar.
+ * Không đụng Home Bar.
+ *
+ * Chỉ cung cấp chiều cao Status Bar mà hệ thống
+ * dùng cho scene/layout.
  */
-static void SHAApplyStatusBarTransform(id statusBarObject) {
-    UIView *statusBar = (UIView *)statusBarObject;
 
-    if (!statusBar) {
-        return;
+%hook UIApplicationSceneSettings
+
+- (double)statusBarHeight
+{
+    return (double)SHAStatusBarHeight();
+}
+
+- (double)defaultStatusBarHeightForOrientation:(long long)orientation
+{
+    /*
+     * Chỉ thay đổi Portrait.
+     *
+     * UIInterfaceOrientation:
+     * 1 = Portrait
+     * 2 = PortraitUpsideDown
+     * 3/4 = Landscape
+     */
+
+    if (orientation == 1 || orientation == 2) {
+        return (double)SHAStatusBarHeight();
     }
 
-    UIWindow *window = statusBar.window;
+    return %orig;
+}
 
-    /*
-     * Chỉ tác động Portrait.
-     * Landscape hoàn toàn giữ nguyên.
-     */
+%end
+
+
+/*
+ * SBMainDisplaySceneLayoutStatusBarView
+ *
+ * Không sửa frame trực tiếp.
+ * Không scale.
+ *
+ * Chỉ thay đổi avoidance frame của Status Bar
+ * để hệ thống biết vùng phía trên cần tránh.
+ */
+
+%hook SBMainDisplaySceneLayoutStatusBarView
+
+- (CGRect)_statusBarAvoidanceFrame
+{
+    CGRect frame = %orig;
+
     UIInterfaceOrientation orientation =
         UIInterfaceOrientationPortrait;
 
+    UIWindow *window = self.window;
+
     if (window.windowScene) {
-        orientation = window.windowScene.interfaceOrientation;
+        orientation =
+            window.windowScene.interfaceOrientation;
     }
 
+    /*
+     * Landscape giữ nguyên hoàn toàn.
+     */
     if (orientation != UIInterfaceOrientationPortrait &&
         orientation != UIInterfaceOrientationPortraitUpsideDown) {
-
-        statusBar.layer.transform = CATransform3DIdentity;
-        return;
+        return frame;
     }
 
-    CGFloat originalHeight = statusBar.bounds.size.height;
-
-    if (originalHeight <= 0.0) {
-        originalHeight = statusBar.frame.size.height;
-    }
-
-    if (originalHeight <= 0.0) {
-        return;
-    }
-
-    CGFloat targetHeight = SHAStatusBarHeight();
+    CGFloat height = SHAStatusBarHeight();
 
     /*
-     * Giá trị nhập là chiều cao trực tiếp.
+     * Chỉ thay đổi chiều cao vùng tránh.
      *
-     * Không còn cơ chế:
-     *     targetHeight = originalHeight + offset
-     *
-     * nữa.
+     * TOP = 0
+     * BOTTOM = height
      */
-    CGFloat scaleY = targetHeight / originalHeight;
+    frame.origin.y = 0.0;
+    frame.size.height = height;
 
-    /*
-     * Cho phép scale = 0 khi Settings = 0.
-     */
-    scaleY = SHAClamp(
-        scaleY,
-        0.0,
-        120.0 / originalHeight
-    );
-
-    /*
-     * Giữ cơ chế transform của bản 1.1.5.
-     *
-     * Không thay đổi frame.
-     * Không thay đổi bounds.
-     * Không đụng Home Bar.
-     */
-    statusBar.layer.transform =
-        CATransform3DMakeScale(
-            1.0,
-            scaleY,
-            1.0
-        );
+    return frame;
 }
+
+%end
 
 
 /*
- * Tìm _UIStatusBar trong các window hiện tại.
+ * Preference thay đổi
  *
- * Dùng UIWindowScene.windows thay cho
- * UIApplication.windows để tránh warning/deprecated
- * trên iOS 15+.
- */
-static void SHAPapplyToAllStatusBars(void) {
-    UIApplication *application =
-        [UIApplication sharedApplication];
-
-    for (UIScene *scene in application.connectedScenes) {
-
-        if (![scene isKindOfClass:[UIWindowScene class]]) {
-            continue;
-        }
-
-        UIWindowScene *windowScene =
-            (UIWindowScene *)scene;
-
-        for (UIWindow *window in windowScene.windows) {
-
-            UIView *rootView = window.rootViewController.view;
-
-            if (!rootView) {
-                continue;
-            }
-
-            NSMutableArray<UIView *> *queue =
-                [NSMutableArray arrayWithObject:rootView];
-
-            while (queue.count > 0) {
-
-                UIView *view = queue.firstObject;
-                [queue removeObjectAtIndex:0];
-
-                Class statusBarClass =
-                    NSClassFromString(@"_UIStatusBar");
-
-                if (statusBarClass &&
-                    [view isKindOfClass:statusBarClass]) {
-
-                    SHAApplyStatusBarTransform(view);
-                }
-
-                for (UIView *subview in view.subviews) {
-                    [queue addObject:subview];
-                }
-            }
-        }
-    }
-}
-
-
-/*
- * ================================
- * STATUS BAR
- * ================================
+ * Reload SpringBoard layout để giá trị mới
+ * được áp dụng mà không đụng Home Bar.
  */
 
-%hook _UIStatusBar
-
-- (void)didMoveToWindow {
-    %orig;
-
-    SHAApplyStatusBarTransform(self);
-}
-
-- (void)layoutSubviews {
-    %orig;
-
-    SHAApplyStatusBarTransform(self);
-}
-
-%end
-
-
-/*
- * ================================
- * HOME BAR
- * ================================
- *
- * KHÔNG thay đổi gì ở Home Bar.
- *
- * Các hook này chỉ giữ nguyên hành vi gốc.
- */
-
-%hook MTLumaDodgePillView
-
-- (void)didMoveToWindow {
-    %orig;
-}
-
-- (void)layoutSubviews {
-    %orig;
-}
-
-%end
-
-
-%hook MTStaticColorPillView
-
-- (void)didMoveToWindow {
-    %orig;
-}
-
-- (void)layoutSubviews {
-    %orig;
-}
-
-%end
-
-
-%hook SBHomeGrabberView
-
-- (void)didMoveToWindow {
-    %orig;
-}
-
-- (void)layoutSubviews {
-    %orig;
-}
-
-%end
-
-
-/*
- * ================================
- * PREFERENCE CHANGE
- * ================================
- */
-
-static void SHAStatusBarPreferencesChanged(
+static void SHAPreferencesChanged(
     CFNotificationCenterRef center,
     void *observer,
     CFStringRef name,
     const void *object,
     CFDictionaryRef userInfo
-) {
+)
+{
     dispatch_async(
         dispatch_get_main_queue(),
         ^{
-            SHAPapplyToAllStatusBars();
+            [[NSNotificationCenter defaultCenter]
+                postNotificationName:
+                    @"SHAStatusHomeBarAdjusterPreferencesChanged"
+                object:nil];
         }
     );
 }
 
 
-/*
- * ================================
- * CONSTRUCTOR
- * ================================
- */
-
-%ctor {
+%ctor
+{
     NSString *bundleID =
         [[NSBundle mainBundle] bundleIdentifier];
 
@@ -289,7 +174,7 @@ static void SHAStatusBarPreferencesChanged(
     CFNotificationCenterAddObserver(
         CFNotificationCenterGetDarwinNotifyCenter(),
         NULL,
-        SHAStatusBarPreferencesChanged,
+        SHAPreferencesChanged,
         CFSTR("com.congtu.statushomebaradjuster/preferenceschanged"),
         NULL,
         CFNotificationSuspensionBehaviorCoalesce
