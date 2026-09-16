@@ -4,8 +4,20 @@
 #define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
 #define SHA_STATUS_BAR_HEIGHT "StatusBarHeight"
 
+
 static CGFloat SHAGetStatusBarHeight(void)
 {
+    /*
+     * Giá trị trong Settings là chiều cao thực tế:
+     *
+     * 0   = 0 px
+     * 10  = 10 px
+     * 20  = 20 px
+     * 30  = 30 px
+     * 49  = 49 px
+     * 120 = 120 px
+     */
+
     CFPreferencesAppSynchronize(
         CFSTR(SHA_PREFS_DOMAIN)
     );
@@ -43,6 +55,10 @@ static CGFloat SHAGetStatusBarHeight(void)
         CFRelease(value);
     }
 
+
+    /*
+     * Clamp 0 - 120.
+     */
     if (height < 0.0) {
         height = 0.0;
     }
@@ -50,6 +66,7 @@ static CGFloat SHAGetStatusBarHeight(void)
     if (height > 120.0) {
         height = 120.0;
     }
+
 
     return height;
 }
@@ -60,11 +77,15 @@ static CGFloat SHAGetStatusBarHeight(void)
  * UIApplicationSceneSettings
  * ============================================================
  *
- * Đây là class mà binary 1.2.2 thực sự hook.
+ * Đây là cơ chế của baseline 1.2.2.
  *
- * Không dùng transform.
- * Không đổi frame.
- * Không đụng Home Bar.
+ * Không:
+ * - CATransform3D
+ * - scale Status Bar
+ * - setFrame:
+ * - hook _UIStatusBar
+ * - hook Home Bar
+ * - hook SBHomeGrabberView
  */
 
 %hook UIApplicationSceneSettings
@@ -79,12 +100,12 @@ static CGFloat SHAGetStatusBarHeight(void)
 - (double)defaultStatusBarHeightForOrientation:(long long)orientation
 {
     /*
-     * Portrait:
-     * 1 = UIInterfaceOrientationPortrait
-     * 2 = UIInterfaceOrientationPortraitUpsideDown
+     * UIInterfaceOrientation:
      *
-     * Landscape:
-     * 3 / 4
+     * 1 = Portrait
+     * 2 = PortraitUpsideDown
+     * 3 = LandscapeLeft
+     * 4 = LandscapeRight
      */
 
     if (orientation == UIInterfaceOrientationPortrait ||
@@ -93,6 +114,10 @@ static CGFloat SHAGetStatusBarHeight(void)
         return (double)SHAGetStatusBarHeight();
     }
 
+
+    /*
+     * Landscape giữ nguyên giá trị hệ thống.
+     */
     return %orig;
 }
 
@@ -102,47 +127,22 @@ static CGFloat SHAGetStatusBarHeight(void)
 
 /*
  * ============================================================
- * SpringBoard notification
+ * Constructor
  * ============================================================
  *
- * Preferences bundle của 1.2.2 gửi:
- *
- * com.congtu.statushomebaradjuster.settingsChanged
- *
- * Không trực tiếp thay frame ở đây.
- *
- * Notification này chỉ được dùng để làm SpringBoard
- * invalidate scene/layout ở mức an toàn.
+ * Chỉ SpringBoard.
  */
-
-static int SHASettingsNotifyToken = 0;
-
-static void SHASettingsChanged(
-    int token
-)
-{
-    /*
-     * Không hook Home Bar.
-     *
-     * Khi Settings thay đổi, giá trị mới sẽ được đọc
-     * ở lần SpringBoard hỏi lại UIApplicationSceneSettings.
-     *
-     * Chỉ đảm bảo callback chạy trong SpringBoard.
-     */
-}
-
 
 %ctor
 {
     NSString *bundleID =
         [[NSBundle mainBundle] bundleIdentifier];
 
-    /*
-     * Chỉ inject SpringBoard.
-     */
+
     if (![bundleID isEqualToString:@"com.apple.springboard"]) {
         return;
     }
+
 
     %init;
 }
