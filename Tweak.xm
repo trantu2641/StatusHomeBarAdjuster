@@ -7,17 +7,6 @@
 
 static CGFloat SHAGetStatusBarHeight(void)
 {
-    /*
-     * Giá trị trong Settings là CHIỀU CAO THỰC TẾ:
-     *
-     * 0   = 0 px
-     * 10  = 10 px
-     * 20  = 20 px
-     * 30  = 30 px
-     * 49  = 49 px
-     * 120 = 120 px
-     */
-
     CFPreferencesAppSynchronize(
         CFSTR(SHA_PREFS_DOMAIN)
     );
@@ -57,8 +46,16 @@ static CGFloat SHAGetStatusBarHeight(void)
 
 
     /*
-     * Clamp 0 - 120.
+     * Settings = chiều cao thực tế.
+     *
+     * 0   -> 0 px
+     * 10  -> 10 px
+     * 20  -> 20 px
+     * 30  -> 30 px
+     * 49  -> 49 px
+     * 120 -> 120 px
      */
+
     if (height < 0.0) {
         height = 0.0;
     }
@@ -74,156 +71,131 @@ static CGFloat SHAGetStatusBarHeight(void)
 
 /*
  * ============================================================
- * UIApplicationSceneSettings
+ * _UIStatusBar
  * ============================================================
  *
- * Đây vẫn là baseline 1.2.2.
+ * Không scale Status Bar.
  *
- * Không:
- * - CATransform3D
- * - setFrame:
- * - hook _UIStatusBar
- * - hook SBHomeGrabberView
- * - hook Home Bar
+ * Không thay frame/bounds/center.
  *
- * Chỉ điều chỉnh các giá trị layout mà SpringBoard/UIKit
- * đã có sẵn cho Status Bar.
+ * Chúng ta tác động vào AVOIDANCE FRAME mà SpringBoard
+ * truyền cho Status Bar.
+ *
+ * Mục tiêu:
+ *
+ * TOP cố định = 0
+ * BOTTOM = StatusBarHeight
  */
 
-%hook UIApplicationSceneSettings
+%hook _UIStatusBar
 
 
-/*
- * ------------------------------------------------------------
- * 1. Status Bar height
- * ------------------------------------------------------------
- */
-
-- (double)statusBarHeight
-{
-    return (double)SHAGetStatusBarHeight();
-}
-
-
-/*
- * ------------------------------------------------------------
- * 2. Default Status Bar height
- * ------------------------------------------------------------
- */
-
-- (double)defaultStatusBarHeightForOrientation:(long long)orientation
+- (void)setAvoidanceFrame:(CGRect)avoidanceFrame
 {
     /*
-     * Portrait
+     * Lấy orientation từ window của Status Bar.
+     *
+     * _UIStatusBar kế thừa UIView nên có window.
      */
-    if (orientation == UIInterfaceOrientationPortrait ||
-        orientation == UIInterfaceOrientationPortraitUpsideDown) {
+    UIWindow *window = self.window;
 
-        return (double)SHAGetStatusBarHeight();
+    UIInterfaceOrientation orientation =
+        UIInterfaceOrientationPortrait;
+
+    if (window.windowScene != nil) {
+
+        orientation =
+            window.windowScene.interfaceOrientation;
     }
 
 
     /*
-     * Landscape giữ nguyên hệ thống.
-     */
-    return %orig;
-}
-
-
-/*
- * ------------------------------------------------------------
- * 3. Status Bar avoidance frame
- * ------------------------------------------------------------
- *
- * Đây là phần mà bản trước còn thiếu.
- *
- * statusBarHeight chỉ nói cho Status Bar biết nó cao bao nhiêu.
- *
- * statusBarAvoidanceFrame mới cho hệ thống biết:
- *
- *     "Nội dung phía dưới phải tránh vùng này."
- *
- */
-
-- (CGRect)statusBarAvoidanceFrame
-{
-    CGRect frame = %orig;
-
-    CGFloat height = SHAGetStatusBarHeight();
-
-
-    /*
-     * Xác định Portrait bằng hình dạng frame.
-     *
-     * iPhone 11 Pro Max Portrait:
-     *
-     * width  ≈ 428
-     * height ≈ 49
-     *
      * Landscape:
-     *
-     * width  > height
-     *
-     * Không cần truy cập self.window, tránh lỗi
-     * forward declaration như bản trước.
+     * hoàn toàn giữ nguyên hệ thống.
      */
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown) {
 
-    if (frame.size.width > frame.size.height) {
-        return frame;
+        %orig(avoidanceFrame);
+        return;
     }
 
 
     /*
-     * Giữ cạnh TOP cố định.
-     *
-     * Chỉ thay chiều cao.
+     * Lấy chiều cao trực tiếp từ Settings.
      */
-    frame.origin.y = 0.0;
-    frame.size.height = height;
-
-
-    return frame;
-}
-
-
-/*
- * ------------------------------------------------------------
- * 4. Portrait safe area
- * ------------------------------------------------------------
- *
- * Đây là phần rất quan trọng đối với:
- *
- *     content
- *     navigation bar
- *     app layout
- *     SpringBoard layout
- *
- * Khi Status Bar tăng:
- *
- *     safeArea.top tăng
- *
- * Khi Status Bar giảm:
- *
- *     safeArea.top giảm
- *
- */
-
-- (UIEdgeInsets)safeAreaInsetsPortrait
-{
-    UIEdgeInsets insets = %orig;
-
-    CGFloat height = SHAGetStatusBarHeight();
+    CGFloat height =
+        SHAGetStatusBarHeight();
 
 
     /*
-     * Chỉ thay TOP.
+     * Giữ nguyên X/W của avoidance frame.
      *
-     * LEFT / RIGHT / BOTTOM giữ nguyên hệ thống.
+     * Chỉ sửa:
+     *
+     *     y = 0
+     *     height = giá trị Settings
+     *
+     * TOP edge cố định.
+     * BOTTOM thay đổi.
      */
-    insets.top = height;
+    CGRect customFrame = avoidanceFrame;
+
+    customFrame.origin.y = 0.0;
+    customFrame.size.height = height;
 
 
-    return insets;
+    %orig(customFrame);
+}
+
+
+- (void)setAvoidanceFrame:(CGRect)avoidanceFrame
+     animationSettings:(id)animationSettings
+               options:(NSUInteger)options
+{
+    UIWindow *window = self.window;
+
+    UIInterfaceOrientation orientation =
+        UIInterfaceOrientationPortrait;
+
+    if (window.windowScene != nil) {
+
+        orientation =
+            window.windowScene.interfaceOrientation;
+    }
+
+
+    /*
+     * Landscape giữ nguyên.
+     */
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown) {
+
+        %orig(
+            avoidanceFrame,
+            animationSettings,
+            options
+        );
+
+        return;
+    }
+
+
+    CGFloat height =
+        SHAGetStatusBarHeight();
+
+
+    CGRect customFrame = avoidanceFrame;
+
+    customFrame.origin.y = 0.0;
+    customFrame.size.height = height;
+
+
+    %orig(
+        customFrame,
+        animationSettings,
+        options
+    );
 }
 
 
@@ -236,7 +208,8 @@ static CGFloat SHAGetStatusBarHeight(void)
  * ============================================================
  *
  * Chỉ SpringBoard.
- * Không inject vào ứng dụng bên thứ ba.
+ *
+ * Không inject vào app.
  */
 
 %ctor
