@@ -46,14 +46,14 @@ static CGFloat SHAGetStatusBarHeight(void)
 
 
     /*
-     * Settings = chiều cao thực tế.
+     * Giá trị Settings là chiều cao thực tế:
      *
-     * 0   -> 0 px
-     * 10  -> 10 px
-     * 20  -> 20 px
-     * 30  -> 30 px
-     * 49  -> 49 px
-     * 120 -> 120 px
+     * 0   = 0 px
+     * 10  = 10 px
+     * 20  = 20 px
+     * 30  = 30 px
+     * 49  = 49 px
+     * 120 = 120 px
      */
 
     if (height < 0.0) {
@@ -74,17 +74,12 @@ static CGFloat SHAGetStatusBarHeight(void)
  * _UIStatusBar
  * ============================================================
  *
- * Không scale Status Bar.
+ * Không scale.
+ * Không setFrame.
+ * Không đổi bounds.
+ * Không đụng Home Bar.
  *
- * Không thay frame/bounds/center.
- *
- * Chúng ta tác động vào AVOIDANCE FRAME mà SpringBoard
- * truyền cho Status Bar.
- *
- * Mục tiêu:
- *
- * TOP cố định = 0
- * BOTTOM = StatusBarHeight
+ * Chỉ thay avoidance frame.
  */
 
 %hook _UIStatusBar
@@ -93,56 +88,62 @@ static CGFloat SHAGetStatusBarHeight(void)
 - (void)setAvoidanceFrame:(CGRect)avoidanceFrame
 {
     /*
-     * Lấy orientation từ window của Status Bar.
+     * Không truy cập self.window ở đây.
      *
-     * _UIStatusBar kế thừa UIView nên có window.
+     * Tránh lỗi:
+     *
+     * "property 'window' cannot be found in forward
+     *  class object '_UIStatusBar'"
+     *
+     *
+     * Phân biệt Portrait / Landscape dựa trên frame.
+     *
+     * Portrait:
+     *     width  > height
+     *
+     * Landscape:
+     *     width  < height
+     *
+     * Tuy nhiên avoidance frame có thể có kích thước
+     * đặc biệt tùy trạng thái SpringBoard, vì vậy chỉ
+     * sửa khi frame hợp lý cho vùng Status Bar phía trên.
      */
-    UIWindow *window = self.window;
 
-    UIInterfaceOrientation orientation =
-        UIInterfaceOrientationPortrait;
-
-    if (window.windowScene != nil) {
-
-        orientation =
-            window.windowScene.interfaceOrientation;
-    }
+    CGFloat width = avoidanceFrame.size.width;
+    CGFloat height = avoidanceFrame.size.height;
 
 
     /*
-     * Landscape:
-     * hoàn toàn giữ nguyên hệ thống.
+     * Nếu frame có chiều ngang lớn hơn chiều cao,
+     * đây là dạng vùng Status Bar Portrait thông thường.
+     *
+     * Nếu không, giữ nguyên để tránh tác động Landscape.
      */
-    if (orientation != UIInterfaceOrientationPortrait &&
-        orientation != UIInterfaceOrientationPortraitUpsideDown) {
-
+    if (width <= height) {
         %orig(avoidanceFrame);
         return;
     }
 
 
-    /*
-     * Lấy chiều cao trực tiếp từ Settings.
-     */
-    CGFloat height =
+    CGFloat customHeight =
         SHAGetStatusBarHeight();
 
 
-    /*
-     * Giữ nguyên X/W của avoidance frame.
-     *
-     * Chỉ sửa:
-     *
-     *     y = 0
-     *     height = giá trị Settings
-     *
-     * TOP edge cố định.
-     * BOTTOM thay đổi.
-     */
-    CGRect customFrame = avoidanceFrame;
+    CGRect customFrame =
+        avoidanceFrame;
 
+
+    /*
+     * TOP cố định.
+     */
     customFrame.origin.y = 0.0;
-    customFrame.size.height = height;
+
+
+    /*
+     * BOTTOM thay đổi theo Settings.
+     */
+    customFrame.size.height =
+        customHeight;
 
 
     %orig(customFrame);
@@ -153,23 +154,17 @@ static CGFloat SHAGetStatusBarHeight(void)
      animationSettings:(id)animationSettings
                options:(NSUInteger)options
 {
-    UIWindow *window = self.window;
+    CGFloat width =
+        avoidanceFrame.size.width;
 
-    UIInterfaceOrientation orientation =
-        UIInterfaceOrientationPortrait;
-
-    if (window.windowScene != nil) {
-
-        orientation =
-            window.windowScene.interfaceOrientation;
-    }
+    CGFloat height =
+        avoidanceFrame.size.height;
 
 
     /*
-     * Landscape giữ nguyên.
+     * Giữ Landscape nguyên bản.
      */
-    if (orientation != UIInterfaceOrientationPortrait &&
-        orientation != UIInterfaceOrientationPortraitUpsideDown) {
+    if (width <= height) {
 
         %orig(
             avoidanceFrame,
@@ -181,14 +176,18 @@ static CGFloat SHAGetStatusBarHeight(void)
     }
 
 
-    CGFloat height =
+    CGFloat customHeight =
         SHAGetStatusBarHeight();
 
 
-    CGRect customFrame = avoidanceFrame;
+    CGRect customFrame =
+        avoidanceFrame;
+
 
     customFrame.origin.y = 0.0;
-    customFrame.size.height = height;
+
+    customFrame.size.height =
+        customHeight;
 
 
     %orig(
@@ -206,10 +205,6 @@ static CGFloat SHAGetStatusBarHeight(void)
  * ============================================================
  * Constructor
  * ============================================================
- *
- * Chỉ SpringBoard.
- *
- * Không inject vào app.
  */
 
 %ctor
@@ -218,6 +213,9 @@ static CGFloat SHAGetStatusBarHeight(void)
         [[NSBundle mainBundle] bundleIdentifier];
 
 
+    /*
+     * Chỉ SpringBoard.
+     */
     if (![bundleID isEqualToString:@"com.apple.springboard"]) {
         return;
     }
