@@ -1,13 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC
-"-//Apple//DTD PLIST 1.0//EN"
-"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 
 <plist version="1.0">
 <dict>
-
-    <key>title</key>
-    <string>Status &amp; Home Bar Adjuster</string>
 
     <key>items</key>
     <array>
@@ -16,14 +12,14 @@
             <key>cell</key>
             <string>PSEditTextCell</string>
 
+            <key>default</key>
+            <string>30</string>
+
             <key>defaults</key>
             <string>com.congtu.statushomebaradjuster</string>
 
             <key>key</key>
             <string>StatusBarHeight</string>
-
-            <key>default</key>
-            <string>30</string>
 
             <key>label</key>
             <string>Status Bar Height</string>
@@ -34,14 +30,14 @@
             <key>cell</key>
             <string>PSEditTextCell</string>
 
+            <key>default</key>
+            <string>30</string>
+
             <key>defaults</key>
             <string>com.congtu.statushomebaradjuster</string>
 
             <key>key</key>
             <string>HomeBarHeight</string>
-
-            <key>default</key>
-            <string>30</string>
 
             <key>label</key>
             <string>Home Bar Height</string>
@@ -87,6 +83,10 @@
         </dict>
 
     </array>
+
+
+    <key>title</key>
+    <string>Status &amp; Home Bar Adjuster</string>
 
 </dict>
 </plist>
