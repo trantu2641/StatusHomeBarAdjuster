@@ -2,36 +2,32 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 
-#pragma mark - Preferences
-
 static NSString * const kSHAPrefDomain = @"com.congtu.statushomebaradjuster";
 static NSString * const kSHAStatusKey  = @"StatusBarHeight";
 static NSString * const kSHAHomeKey    = @"HomeBarHeight";
 
+#pragma mark - Preferences
+
 static CGFloat SHAReadValue(NSString *key, CGFloat fallback) {
-    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:kSHAPrefDomain];
+    NSUserDefaults *defaults =
+        [[NSUserDefaults alloc] initWithSuiteName:kSHAPrefDomain];
 
     id obj = [defaults objectForKey:key];
 
+    CGFloat value = fallback;
+
     if ([obj isKindOfClass:[NSNumber class]]) {
-        CGFloat value = [obj doubleValue];
-
-        if (isnan(value) || isinf(value))
-            return fallback;
-
-        return MAX(0.0, MIN(120.0, value));
+        value = [(NSNumber *)obj doubleValue];
+    } else if ([obj isKindOfClass:[NSString class]]) {
+        value = [(NSString *)obj doubleValue];
+    } else {
+        return fallback;
     }
 
-    if ([obj isKindOfClass:[NSString class]]) {
-        CGFloat value = [(NSString *)obj doubleValue];
+    if (isnan(value) || isinf(value))
+        return fallback;
 
-        if (isnan(value) || isinf(value))
-            return fallback;
-
-        return MAX(0.0, MIN(120.0, value));
-    }
-
-    return fallback;
+    return MAX(0.0, MIN(120.0, value));
 }
 
 static CGFloat SHAStatusHeight(void) {
@@ -51,16 +47,16 @@ static BOOL SHAPortrait(void) {
         if (![scene isKindOfClass:[UIWindowScene class]])
             continue;
 
-        UIInterfaceOrientation o =
+        UIInterfaceOrientation orientation =
             ((UIWindowScene *)scene).interfaceOrientation;
 
-        if (o == UIInterfaceOrientationPortrait ||
-            o == UIInterfaceOrientationPortraitUpsideDown) {
+        if (orientation == UIInterfaceOrientationPortrait ||
+            orientation == UIInterfaceOrientationPortraitUpsideDown) {
             return YES;
         }
 
-        if (o == UIInterfaceOrientationLandscapeLeft ||
-            o == UIInterfaceOrientationLandscapeRight) {
+        if (orientation == UIInterfaceOrientationLandscapeLeft ||
+            orientation == UIInterfaceOrientationLandscapeRight) {
             return NO;
         }
     }
@@ -68,20 +64,17 @@ static BOOL SHAPortrait(void) {
     return YES;
 }
 
-static BOOL SHAPortraitOrientation(UIInterfaceOrientation o) {
-    return o == UIInterfaceOrientationPortrait ||
-           o == UIInterfaceOrientationPortraitUpsideDown;
+static BOOL SHAPortraitOrientation(UIInterfaceOrientation orientation) {
+    return orientation == UIInterfaceOrientationPortrait ||
+           orientation == UIInterfaceOrientationPortraitUpsideDown;
 }
 
-#pragma mark - Helpers
+#pragma mark - Frame helpers
 
-static CGRect SHAStatusFrame(CGRect original, CGFloat height) {
-    CGRect r = original;
-
-    r.origin.y = 0.0;
-    r.size.height = height;
-
-    return r;
+static CGRect SHAStatusFrame(CGRect frame, CGFloat height) {
+    frame.origin.y = 0.0;
+    frame.size.height = height;
+    return frame;
 }
 
 static UIEdgeInsets SHAReplaceTop(UIEdgeInsets insets, CGFloat top) {
@@ -213,9 +206,9 @@ didAnimateFromHeight:(CGFloat)oldHeight
          animation:(id)animation {
 
     if (SHAPortrait()) {
-        CGFloat h = SHAStatusHeight();
+        CGFloat height = SHAStatusHeight();
 
-        %orig(statusBar, oldHeight, h, animation);
+        %orig(statusBar, oldHeight, height, animation);
         return;
     }
 
@@ -229,9 +222,9 @@ willAnimateFromHeight:(CGFloat)oldHeight
           animation:(id)animation {
 
     if (SHAPortrait()) {
-        CGFloat h = SHAStatusHeight();
+        CGFloat height = SHAStatusHeight();
 
-        %orig(statusBar, oldHeight, h, duration, animation);
+        %orig(statusBar, oldHeight, height, duration, animation);
         return;
     }
 
@@ -244,18 +237,23 @@ willAnimateFromHeight:(CGFloat)oldHeight
     if (!SHAPortraitOrientation(orientation))
         return;
 
-    CGFloat h = SHAStatusHeight();
+    CGFloat height = SHAStatusHeight();
 
-    NSArray *children = self.subviews;
+    /*
+     * SBMainDisplaySceneLayoutStatusBarView là private class.
+     * Ép về UIView trước khi truy cập subviews để tránh
+     * lỗi "forward class object".
+     */
+    UIView *statusContainer = (UIView *)self;
 
-    for (UIView *view in children) {
-        NSString *name = NSStringFromClass(view.class);
+    for (UIView *view in statusContainer.subviews) {
+        NSString *className = NSStringFromClass([view class]);
 
-        if ([name containsString:@"UIStatusBar"]) {
+        if ([className containsString:@"UIStatusBar"]) {
             CGRect frame = view.frame;
 
             frame.origin.y = 0.0;
-            frame.size.height = h;
+            frame.size.height = height;
 
             view.frame = frame;
         }
@@ -268,16 +266,18 @@ willAnimateFromHeight:(CGFloat)oldHeight
     if (!SHAPortraitOrientation(orientation))
         return;
 
-    CGFloat h = SHAStatusHeight();
+    CGFloat height = SHAStatusHeight();
 
-    for (UIView *view in self.subviews) {
-        NSString *name = NSStringFromClass(view.class);
+    UIView *statusContainer = (UIView *)self;
 
-        if ([name containsString:@"UIStatusBar"]) {
+    for (UIView *view in statusContainer.subviews) {
+        NSString *className = NSStringFromClass([view class]);
+
+        if ([className containsString:@"UIStatusBar"]) {
             CGRect frame = view.frame;
 
             frame.origin.y = 0.0;
-            frame.size.height = h;
+            frame.size.height = height;
 
             view.frame = frame;
         }
@@ -298,9 +298,8 @@ willAnimateFromHeight:(CGFloat)oldHeight
     CGSize result =
         %orig(screen, orientation, lockScreen, azul);
 
-    if (SHAPortraitOrientation(orientation)) {
+    if (SHAPortraitOrientation(orientation))
         result.height = SHAStatusHeight();
-    }
 
     return result;
 }
@@ -312,9 +311,8 @@ willAnimateFromHeight:(CGFloat)oldHeight
     CGSize result =
         %orig(screen, orientation, lockScreen);
 
-    if (SHAPortraitOrientation(orientation)) {
+    if (SHAPortraitOrientation(orientation))
         result.height = SHAStatusHeight();
-    }
 
     return result;
 }
@@ -334,15 +332,21 @@ willAnimateFromHeight:(CGFloat)oldHeight
     if (!SHAPortrait())
         return;
 
-    CGFloat h = SHAStatusHeight();
+    CGFloat height = SHAStatusHeight();
 
-    CGRect frame = self.frame;
+    /*
+     * _UIStatusBar là forward-declared private class,
+     * nên cast sang UIView trước khi truy cập frame.
+     */
+    UIView *statusBarView = (UIView *)self;
 
-    if (fabs(frame.size.height - h) > 0.1) {
+    CGRect frame = statusBarView.frame;
+
+    if (fabs(frame.size.height - height) > 0.1) {
         frame.origin.y = 0.0;
-        frame.size.height = h;
+        frame.size.height = height;
 
-        self.frame = frame;
+        statusBarView.frame = frame;
     }
 }
 
@@ -380,19 +384,14 @@ willAnimateFromHeight:(CGFloat)oldHeight
 %end
 
 #pragma mark - SBDeviceApplicationSceneView
-//
-// Không đụng frame của SBHomeGrabberView.
-// Chỉ thay bottom safe-area của vùng scene.
-//
 
 %hook SBDeviceApplicationSceneView
 
 - (UIEdgeInsets)safeAreaInsets {
     UIEdgeInsets result = %orig;
 
-    if (SHAPortrait()) {
+    if (SHAPortrait())
         result = SHAReplaceBottom(result, SHAHomeHeight());
-    }
 
     return result;
 }
@@ -403,22 +402,28 @@ willAnimateFromHeight:(CGFloat)oldHeight
     if (!SHAPortrait())
         return;
 
-    [self setNeedsLayout];
-    [self layoutIfNeeded];
+    /*
+     * Cast sang UIView để compiler không coi self
+     * là forward-declared private class.
+     */
+    UIView *sceneView = (UIView *)self;
+
+    [sceneView setNeedsLayout];
 }
 
 %end
 
 #pragma mark - SBHomeGrabberView
-//
-// QUAN TRỌNG:
-// Không thay grabberFrameForBounds:
-// Không scale pill.
-// Không di chuyển pill.
-// Không thay gesture recognizer.
-//
 
 %hook SBHomeGrabberView
+
+/*
+ * Không sửa grabberFrameForBounds:
+ *
+ * Đây là phần tính frame của Home Grabber/Pill.
+ * Yêu cầu của tweak là thay vùng Home Bar chứ không
+ * scale hoặc di chuyển pill.
+ */
 
 - (void)layoutSubviews {
     %orig;
@@ -427,9 +432,6 @@ willAnimateFromHeight:(CGFloat)oldHeight
 %end
 
 #pragma mark - SBHomeGrabberRotationView
-//
-// Giữ nguyên wrapper full-screen và gesture.
-//
 
 %hook SBHomeGrabberRotationView
 
