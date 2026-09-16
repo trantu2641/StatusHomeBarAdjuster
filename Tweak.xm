@@ -53,16 +53,16 @@ static BOOL SHAPortrait(void)
         if (![scene isKindOfClass:[UIWindowScene class]])
             continue;
 
-        UIInterfaceOrientation orientation =
+        UIInterfaceOrientation o =
             ((UIWindowScene *)scene).interfaceOrientation;
 
-        if (orientation == UIInterfaceOrientationPortrait ||
-            orientation == UIInterfaceOrientationPortraitUpsideDown) {
+        if (o == UIInterfaceOrientationPortrait ||
+            o == UIInterfaceOrientationPortraitUpsideDown) {
             return YES;
         }
 
-        if (orientation == UIInterfaceOrientationLandscapeLeft ||
-            orientation == UIInterfaceOrientationLandscapeRight) {
+        if (o == UIInterfaceOrientationLandscapeLeft ||
+            o == UIInterfaceOrientationLandscapeRight) {
             return NO;
         }
     }
@@ -70,97 +70,56 @@ static BOOL SHAPortrait(void)
     return YES;
 }
 
-static BOOL SHAPortraitOrientation(UIInterfaceOrientation orientation)
+static BOOL SHAPortraitOrientation(UIInterfaceOrientation o)
 {
-    return orientation == UIInterfaceOrientationPortrait ||
-           orientation == UIInterfaceOrientationPortraitUpsideDown;
+    return o == UIInterfaceOrientationPortrait ||
+           o == UIInterfaceOrientationPortraitUpsideDown;
 }
 
-#pragma mark - Status Bar content positioning
+#pragma mark - Status content
 
-/*
- * iOS có xu hướng giữ minimum height ~30pt cho UIStatusBar.
- *
- * Ta không scale icon.
- *
- * Khi vùng Status Bar thay đổi:
- *
- *     height = 60
- *
- * content được đặt gần đáy:
- *
- *     ┌────────────────────┐
- *     │                    │
- *     │                    │
- *     │       ICONS        │
- *     └────────────────────┘
- *
- * Khi:
- *
- *     height = 10
- *
- * content vẫn giữ kích thước gốc nhưng được dịch
- * theo cạnh dưới của vùng Status Bar.
- */
-
-static void SHAMoveStatusContent(UIView *statusBar,
-                                  CGFloat newHeight)
+static void SHAAdjustStatusContent(UIView *statusBar,
+                                   CGFloat targetHeight)
 {
     if (!statusBar)
         return;
 
-    /*
-     * Không làm gì nếu iOS đang layout một view
-     * không có chiều cao hợp lệ.
-     */
-    if (statusBar.bounds.size.height <= 0.0)
-        return;
-
-    CGFloat oldHeight = statusBar.bounds.size.height;
+    if (targetHeight < 0.0)
+        targetHeight = 0.0;
 
     /*
-     * Duyệt các direct subview của _UIStatusBar.
+     * Các thành phần con của UIStatusBar thường nằm
+     * trong vùng 30pt mặc định.
      *
      * Không scale.
-     * Chỉ dịch Y để content bám theo cạnh dưới.
+     * Chỉ dịch theo thay đổi của vùng.
      */
-    for (UIView *view in statusBar.subviews) {
 
-        NSString *name = NSStringFromClass(view.class);
+    CGFloat currentHeight = statusBar.bounds.size.height;
+
+    if (currentHeight <= 0.0)
+        currentHeight = 30.0;
+
+    CGFloat delta = targetHeight - currentHeight;
+
+    for (UIView *subview in statusBar.subviews) {
+
+        NSString *name =
+            NSStringFromClass(subview.class);
 
         /*
-         * Bỏ qua các container có khả năng là background/
-         * overlay toàn vùng.
+         * Không đụng background/overlay.
          */
         if ([name containsString:@"Background"] ||
             [name containsString:@"Backdrop"]) {
             continue;
         }
 
-        CGRect frame = view.frame;
+        CGRect f = subview.frame;
 
-        /*
-         * Chỉ dịch content theo chênh lệch chiều cao.
-         *
-         * Ví dụ:
-         *
-         * old = 30
-         * new = 60
-         * delta = +30
-         *
-         * old = 30
-         * new = 10
-         * delta = -20
-         */
-        CGFloat delta = newHeight - oldHeight;
+        f.origin.y += delta;
 
-        /*
-         * Các container content thường có anchor ở trên.
-         * Đưa chúng xuống theo delta.
-         */
-        frame.origin.y += delta;
-
-        view.frame = frame;
+        subview.frame = f;
     }
 }
 
@@ -176,9 +135,9 @@ static void SHAMoveStatusContent(UIView *statusBar,
     return %orig;
 }
 
-- (CGFloat)defaultStatusBarHeightForOrientation:(UIInterfaceOrientation)orientation
+- (CGFloat)defaultStatusBarHeightForOrientation:(UIInterfaceOrientation)o
 {
-    if (SHAPortraitOrientation(orientation))
+    if (SHAPortraitOrientation(o))
         return SHAStatusHeight();
 
     return %orig;
@@ -189,6 +148,7 @@ static void SHAMoveStatusContent(UIView *statusBar,
     CGRect frame = %orig;
 
     if (SHAPortrait()) {
+
         frame.origin.y = 0.0;
         frame.size.height = SHAStatusHeight();
     }
@@ -216,12 +176,6 @@ static void SHAMoveStatusContent(UIView *statusBar,
     return insets;
 }
 
-/*
- * Đây là metric liên quan trực tiếp tới vùng
- * Home Affordance.
- *
- * Không thay frame của pill.
- */
 - (CGFloat)homeAffordanceOverlayAllowance
 {
     if (SHAPortrait())
@@ -236,11 +190,12 @@ static void SHAMoveStatusContent(UIView *statusBar,
 
 %hook SBMainDisplaySceneLayoutStatusBarView
 
-- (CGRect)_statusBarFrameForOrientation:(UIInterfaceOrientation)orientation
+- (CGRect)_statusBarFrameForOrientation:(UIInterfaceOrientation)o
 {
     CGRect frame = %orig;
 
-    if (SHAPortraitOrientation(orientation)) {
+    if (SHAPortraitOrientation(o)) {
+
         frame.origin.y = 0.0;
         frame.size.height = SHAStatusHeight();
     }
@@ -253,6 +208,7 @@ static void SHAMoveStatusContent(UIView *statusBar,
     CGRect frame = %orig;
 
     if (SHAPortrait()) {
+
         frame.origin.y = 0.0;
         frame.size.height = SHAStatusHeight();
     }
@@ -297,9 +253,13 @@ didAnimateFromHeight:(CGFloat)oldHeight
 {
     if (SHAPortrait()) {
 
-        CGFloat height = SHAStatusHeight();
+        CGFloat target = SHAStatusHeight();
 
-        %orig(statusBar, oldHeight, height, animation);
+        %orig(statusBar,
+              oldHeight,
+              target,
+              animation);
+
         return;
     }
 
@@ -314,11 +274,11 @@ willAnimateFromHeight:(CGFloat)oldHeight
 {
     if (SHAPortrait()) {
 
-        CGFloat height = SHAStatusHeight();
+        CGFloat target = SHAStatusHeight();
 
         %orig(statusBar,
               oldHeight,
-              height,
+              target,
               duration,
               animation);
 
@@ -328,72 +288,179 @@ willAnimateFromHeight:(CGFloat)oldHeight
     %orig;
 }
 
-- (void)_layoutStatusBarForOrientation:(UIInterfaceOrientation)orientation
+- (void)_layoutStatusBarForOrientation:(UIInterfaceOrientation)o
 {
     %orig;
 
-    if (!SHAPortraitOrientation(orientation))
+    if (!SHAPortraitOrientation(o))
         return;
 
-    CGFloat height = SHAStatusHeight();
+    CGFloat target = SHAStatusHeight();
 
     UIView *container = (UIView *)self;
 
     for (UIView *view in container.subviews) {
 
-        NSString *name = NSStringFromClass(view.class);
+        NSString *name =
+            NSStringFromClass(view.class);
 
         if ([name containsString:@"UIStatusBar"]) {
 
             CGRect frame = view.frame;
 
             frame.origin.y = 0.0;
-            frame.size.height = height;
+            frame.size.height = target;
 
             view.frame = frame;
 
-            /*
-             * Quan trọng:
-             * lấy UIStatusBar thực tế rồi dịch content.
-             */
-            if ([name containsString:@"Modern"] ||
-                [name isEqualToString:@"_UIStatusBar"]) {
-
-                SHAMoveStatusContent(view, height);
-            }
+            SHAAdjustStatusContent(view, target);
         }
     }
 }
 
-- (void)layoutStatusBarForSpringBoardRotationToOrientation:(UIInterfaceOrientation)orientation
+- (void)layoutStatusBarForSpringBoardRotationToOrientation:(UIInterfaceOrientation)o
 {
     %orig;
 
-    if (!SHAPortraitOrientation(orientation))
+    if (!SHAPortraitOrientation(o))
         return;
 
-    CGFloat height = SHAStatusHeight();
+    CGFloat target = SHAStatusHeight();
 
     UIView *container = (UIView *)self;
 
     for (UIView *view in container.subviews) {
 
-        NSString *name = NSStringFromClass(view.class);
+        NSString *name =
+            NSStringFromClass(view.class);
 
         if ([name containsString:@"UIStatusBar"]) {
 
             CGRect frame = view.frame;
 
             frame.origin.y = 0.0;
-            frame.size.height = height;
+            frame.size.height = target;
 
             view.frame = frame;
 
-            if ([name containsString:@"Modern"] ||
-                [name isEqualToString:@"_UIStatusBar"]) {
+            SHAAdjustStatusContent(view, target);
+        }
+    }
+}
 
-                SHAMoveStatusContent(view, height);
-            }
+%end
+
+#pragma mark - UIStatusBar_Modern
+//
+// Đây là phần mới quan trọng.
+//
+// Runtime dump trước cho thấy:
+//
+// _UIStatusBar
+//      ↓
+// UIStatusBar_Modern
+//      ↓
+// UIStatusBarWindow
+//
+// _UIStatusBar bị:
+// UIView-Encapsulated-Layout-Height
+// == 49
+//
+// UIStatusBar_Modern là container cần xử lý.
+//
+
+%hook UIStatusBar_Modern
+
+- (CGSize)intrinsicContentSize
+{
+    CGSize size = %orig;
+
+    if (SHAPortrait())
+        size.height = SHAStatusHeight();
+
+    return size;
+}
+
+- (void)updateConstraints
+{
+    %orig;
+
+    if (!SHAPortrait())
+        return;
+
+    CGFloat target = SHAStatusHeight();
+
+    /*
+     * Tìm constraint height của chính status bar.
+     *
+     * Không xoá tất cả constraint.
+     * Chỉ xử lý height constraint có liên quan.
+     */
+
+    NSArray *constraints =
+        [(UIView *)self constraints];
+
+    for (NSLayoutConstraint *constraint in constraints) {
+
+        if (constraint.firstAttribute != NSLayoutAttributeHeight)
+            continue;
+
+        UIView *first =
+            (UIView *)constraint.firstItem;
+
+        if (first != (UIView *)self)
+            continue;
+
+        /*
+         * Không can thiệp constraint encapsulated.
+         * Chỉ cập nhật constraint nội bộ nếu có.
+         */
+        if (constraint.identifier &&
+            [constraint.identifier containsString:@"Encapsulated"]) {
+            continue;
+        }
+
+        if (constraint.priority < UILayoutPriorityRequired) {
+
+            constraint.constant = target;
+        }
+    }
+}
+
+- (void)layoutSubviews
+{
+    %orig;
+
+    if (!SHAPortrait())
+        return;
+
+    CGFloat target = SHAStatusHeight();
+
+    UIView *modern = (UIView *)self;
+
+    CGRect frame = modern.frame;
+
+    frame.origin.y = 0.0;
+    frame.size.height = target;
+
+    modern.frame = frame;
+
+    for (UIView *view in modern.subviews) {
+
+        NSString *name =
+            NSStringFromClass(view.class);
+
+        if ([name isEqualToString:@"_UIStatusBar"] ||
+            [name containsString:@"UIStatusBar"]) {
+
+            CGRect f = view.frame;
+
+            f.origin.y = 0.0;
+            f.size.height = target;
+
+            view.frame = f;
+
+            SHAAdjustStatusContent(view, target);
         }
     }
 }
@@ -405,32 +472,32 @@ willAnimateFromHeight:(CGFloat)oldHeight
 %hook _UIStatusBar
 
 + (CGSize)intrinsicContentSizeForTargetScreen:(UIScreen *)screen
-                                   orientation:(UIInterfaceOrientation)orientation
+                                   orientation:(UIInterfaceOrientation)o
                                   onLockScreen:(BOOL)lockScreen
                                 isAzulBLinked:(BOOL)azul
 {
     CGSize size =
         %orig(screen,
-              orientation,
+              o,
               lockScreen,
               azul);
 
-    if (SHAPortraitOrientation(orientation))
+    if (SHAPortraitOrientation(o))
         size.height = SHAStatusHeight();
 
     return size;
 }
 
 + (CGSize)intrinsicContentSizeForTargetScreen:(UIScreen *)screen
-                                   orientation:(UIInterfaceOrientation)orientation
+                                   orientation:(UIInterfaceOrientation)o
                                   onLockScreen:(BOOL)lockScreen
 {
     CGSize size =
         %orig(screen,
-              orientation,
+              o,
               lockScreen);
 
-    if (SHAPortraitOrientation(orientation))
+    if (SHAPortraitOrientation(o))
         size.height = SHAStatusHeight();
 
     return size;
@@ -455,22 +522,16 @@ willAnimateFromHeight:(CGFloat)oldHeight
 
     UIView *statusBar = (UIView *)self;
 
-    CGFloat height = SHAStatusHeight();
+    CGFloat target = SHAStatusHeight();
 
     CGRect frame = statusBar.frame;
 
-    /*
-     * Ép lại height sau Auto Layout.
-     *
-     * Điều này đặc biệt quan trọng với giá trị <30,
-     * vì iOS có encapsulated height constraint.
-     */
     frame.origin.y = 0.0;
-    frame.size.height = height;
+    frame.size.height = target;
 
     statusBar.frame = frame;
 
-    SHAMoveStatusContent(statusBar, height);
+    SHAAdjustStatusContent(statusBar, target);
 }
 
 - (void)setAvoidanceFrame:(CGRect)frame
@@ -496,7 +557,10 @@ willAnimateFromHeight:(CGFloat)oldHeight
         frame.origin.y = 0.0;
         frame.size.height = SHAStatusHeight();
 
-        %orig(frame, settings, options);
+        %orig(frame,
+              settings,
+              options);
+
         return;
     }
 
@@ -505,18 +569,29 @@ willAnimateFromHeight:(CGFloat)oldHeight
 
 %end
 
-#pragma mark - SBHomeGrabberView
+#pragma mark - Home: SBDeviceApplicationSceneView
+
+%hook SBDeviceApplicationSceneView
+
+/*
+ * Không còn override safeAreaInsets.
+ *
+ * iOS 16.4 không lấy Home Bar height từ đây theo cách
+ * chúng ta cần.
+ */
+
+%end
+
+#pragma mark - Home: SBHomeGrabberView
 
 %hook SBHomeGrabberView
 
 /*
- * KHÔNG hook grabberFrameForBounds:
+ * Tuyệt đối không sửa:
  *
- * Không scale.
- * Không di chuyển.
- * Không thay đổi kích thước Home Indicator.
+ * grabberFrameForBounds:
  *
- * Gesture area của iOS được giữ nguyên.
+ * vì đó là frame của Home Indicator/Pill.
  */
 
 - (void)layoutSubviews
@@ -526,7 +601,7 @@ willAnimateFromHeight:(CGFloat)oldHeight
 
 %end
 
-#pragma mark - SBHomeGrabberRotationView
+#pragma mark - Home: SBHomeGrabberRotationView
 
 %hook SBHomeGrabberRotationView
 
