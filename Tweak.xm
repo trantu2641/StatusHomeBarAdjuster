@@ -42,50 +42,58 @@ static CGFloat SHAStatusBarHeight(void)
 
 #pragma mark - UIApplicationSceneSettings
 
-%group SHAUIApplicationSceneSettings
+%group SHAStatusBarDefaultHeight
 
 %hook UIApplicationSceneSettings
 
 /*
- * iOS 16.4 diagnostic:
+ * Runtime iOS 16.4 của máy:
  *
- * - statusBarHeight
+ * - defaultStatusBarHeightForOrientation:
  *
- * Chỉ thay đổi giá trị height được Settings cung cấp.
+ * Signature:
  *
- * Không:
- * - sửa frame
- * - sửa bounds
- * - sửa safeAreaInsets
- * - gọi layoutSubviews
- * - hook UIStatusBar
- * - hook SpringBoard window
+ * [d24@0:8q16]
+ *
+ * return: double
+ * arg: UIInterfaceOrientation
+ *
+ * Đây là bản thử nghiệm chỉ thay đổi giá trị DEFAULT
+ * mà UIApplicationSceneSettings cung cấp cho Status Bar.
+ *
+ * Không sửa:
+ * - frame
+ * - bounds
+ * - transform
+ * - layoutSubviews
+ * - safeAreaInsets
+ * - UIStatusBar_Modern
+ * - SBMainDisplaySceneLayoutStatusBarView
+ * - Home Bar
  */
 
-- (CGFloat)statusBarHeight
+- (CGFloat)defaultStatusBarHeightForOrientation:(NSInteger)orientation
 {
     /*
-     * Chỉ áp dụng portrait.
+     * Chỉ thay đổi Portrait.
      *
-     * Không dùng UIScreen orientation API ở đây.
-     * UIApplicationSceneSettings là object của scene,
-     * nên kiểm tra kích thước scene/window nếu có thể.
+     * UIInterfaceOrientation:
+     *
+     * 1 = Portrait
+     * 2 = PortraitUpsideDown
+     * 3 = LandscapeLeft
+     * 4 = LandscapeRight
      */
 
-    CGFloat original = %orig;
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown) {
 
-    /*
-     * Bản đầu tiên vẫn giữ nguyên nếu giá trị preference
-     * chưa hợp lệ.
-     */
-
-    CGFloat customHeight = SHAStatusBarHeight();
-
-    if (!isfinite(customHeight)) {
-        return original;
+        return %orig;
     }
 
-    return customHeight;
+    CGFloat height = SHAStatusBarHeight();
+
+    return height;
 }
 
 %end
@@ -102,16 +110,16 @@ static CGFloat SHAStatusBarHeight(void)
             NSClassFromString(@"UIApplicationSceneSettings");
 
         SEL selector =
-            @selector(statusBarHeight);
+            @selector(defaultStatusBarHeightForOrientation:);
 
         /*
-         * Chỉ cài hook nếu class và instance method tồn tại.
+         * Chỉ hook khi method tồn tại đúng trên runtime.
          */
 
         if (cls &&
             [cls instancesRespondToSelector:selector]) {
 
-            %init(SHAUIApplicationSceneSettings);
+            %init(SHAStatusBarDefaultHeight);
         }
     }
 }
