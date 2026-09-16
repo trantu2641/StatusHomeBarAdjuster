@@ -1,103 +1,79 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC
-"-//Apple//DTD PLIST 1.0//EN"
-"http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 
 <plist version="1.0">
 <dict>
 
-    <key>title</key>
-    <string>Status &amp; Home Bar Adjuster</string>
-
-
-    <key>items</key>
+    <key>PreferenceSpecifiers</key>
     <array>
 
+        <dict>
+            <key>Type</key>
+            <string>PSGroupCell</string>
 
-        <!-- STATUS BAR -->
+            <key>Label</key>
+            <string>Status Bar</string>
+
+            <key>FooterText</key>
+            <string>Nhập chiều cao Status Bar từ 0 đến 120 px. 30 px là mặc định.</string>
+        </dict>
 
         <dict>
-            <key>cell</key>
+            <key>Type</key>
             <string>PSEditTextCell</string>
 
-            <key>defaults</key>
-            <string>com.congtu.statushomebaradjuster</string>
+            <key>Title</key>
+            <string>Status Bar Height</string>
 
-            <key>key</key>
+            <key>Key</key>
             <string>StatusBarHeight</string>
 
-            <key>default</key>
+            <key>Default</key>
             <string>30</string>
 
-            <key>label</key>
-            <string>Status Bar Height</string>
+            <key>KeyboardType</key>
+            <string>NumbersAndPunctuation</string>
+
+            <key>IsSecure</key>
+            <false/>
         </dict>
 
+        <dict>
+            <key>Type</key>
+            <string>PSGroupCell</string>
 
-        <!-- HOME BAR -->
+            <key>Label</key>
+            <string>Home Bar</string>
+
+            <key>FooterText</key>
+            <string>Home Bar giữ nguyên, chưa được thay đổi.</string>
+        </dict>
 
         <dict>
-            <key>cell</key>
+            <key>Type</key>
             <string>PSEditTextCell</string>
 
-            <key>defaults</key>
-            <string>com.congtu.statushomebaradjuster</string>
+            <key>Title</key>
+            <string>Home Bar Height</string>
 
-            <key>key</key>
+            <key>Key</key>
             <string>HomeBarHeight</string>
 
-            <key>default</key>
+            <key>Default</key>
             <string>30</string>
 
-            <key>label</key>
-            <string>Home Bar Height</string>
+            <key>KeyboardType</key>
+            <string>NumbersAndPunctuation</string>
+
+            <key>IsSecure</key>
+            <false/>
         </dict>
-
-
-        <!-- INFORMATION -->
-
-        <dict>
-            <key>cell</key>
-            <string>PSGroupCell</string>
-
-            <key>label</key>
-            <string>Giá trị: 0 - 120 px</string>
-        </dict>
-
-
-        <dict>
-            <key>cell</key>
-            <string>PSGroupCell</string>
-
-            <key>label</key>
-            <string>30 px = mặc định</string>
-        </dict>
-
-
-        <dict>
-            <key>cell</key>
-            <string>PSGroupCell</string>
-
-            <key>label</key>
-            <string>0 px = ẩn/gần như ẩn</string>
-        </dict>
-
-
-        <!-- APPLY -->
-
-        <dict>
-            <key>action</key>
-            <string>applySettings</string>
-
-            <key>cell</key>
-            <string>PSButtonCell</string>
-
-            <key>label</key>
-            <string>Apply</string>
-        </dict>
-
 
     </array>
+
+    <key>title</key>
+    <string>StatusHomeBarAdjuster</string>
 
 </dict>
 </plist>
