@@ -16,7 +16,7 @@
             <string>Status Bar</string>
 
             <key>FooterText</key>
-            <string>Nhập chiều cao Status Bar từ 0 đến 120 px. 30 px là mặc định.</string>
+            <string>Chiều cao Status Bar từ 0 đến 120 px. 30 px là mặc định.</string>
         </dict>
 
         <dict>
@@ -33,11 +33,12 @@
             <string>30</string>
 
             <key>KeyboardType</key>
-            <string>NumbersAndPunctuation</string>
+            <string>numberPad</string>
 
             <key>IsSecure</key>
             <false/>
         </dict>
+
 
         <dict>
             <key>Type</key>
@@ -47,7 +48,7 @@
             <string>Home Bar</string>
 
             <key>FooterText</key>
-            <string>Home Bar giữ nguyên, chưa được thay đổi.</string>
+            <string>Home Bar chưa được thay đổi trong phiên bản này.</string>
         </dict>
 
         <dict>
@@ -64,7 +65,7 @@
             <string>30</string>
 
             <key>KeyboardType</key>
-            <string>NumbersAndPunctuation</string>
+            <string>numberPad</string>
 
             <key>IsSecure</key>
             <false/>
