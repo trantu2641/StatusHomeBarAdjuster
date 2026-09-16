@@ -1,35 +1,51 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
+#import <CoreFoundation/CoreFoundation.h>
 
-#define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
-#define SHA_STATUS_HEIGHT_KEY "StatusBarHeight"
-
+#pragma mark -
+#pragma mark Preferences
+#pragma mark -
 
 static CGFloat SHAStatusBarHeight(void)
 {
-    CFPropertyListRef value = CFPreferencesCopyAppValue(
-        CFSTR(SHA_STATUS_HEIGHT_KEY),
-        CFSTR(SHA_PREFS_DOMAIN)
-    );
+    CFStringRef domain =
+        CFSTR("com.congtu.statushomebaradjuster");
+
+    /*
+     * Đồng bộ Preferences trước khi đọc.
+     */
+    CFPreferencesAppSynchronize(domain);
+
+    CFPropertyListRef value =
+        CFPreferencesCopyAppValue(
+            CFSTR("StatusBarHeight"),
+            domain
+        );
 
     CGFloat height = 30.0;
 
-    if (value != NULL) {
-
-        if (CFGetTypeID(value) == CFNumberGetTypeID()) {
-
+    if (value)
+    {
+        /*
+         * PSEditTextCell có thể lưu NSString,
+         * còn RootListController có thể lưu NSNumber.
+         *
+         * Hỗ trợ cả hai.
+         */
+        if (CFGetTypeID(value) == CFNumberGetTypeID())
+        {
             double number = 30.0;
 
-            CFNumberGetValue(
-                (CFNumberRef)value,
-                kCFNumberDoubleType,
-                &number
-            );
-
-            height = (CGFloat)number;
+            if (CFNumberGetValue(
+                    (CFNumberRef)value,
+                    kCFNumberDoubleType,
+                    &number))
+            {
+                height = (CGFloat)number;
+            }
         }
-        else if (CFGetTypeID(value) == CFStringGetTypeID()) {
-
+        else if (CFGetTypeID(value) == CFStringGetTypeID())
+        {
             height =
                 (CGFloat)CFStringGetDoubleValue(
                     (CFStringRef)value
@@ -40,180 +56,50 @@ static CGFloat SHAStatusBarHeight(void)
     }
 
     /*
-     * Người dùng nhập trực tiếp chiều cao:
+     * Giới hạn đúng yêu cầu:
      *
-     * 0   = 0 px
-     * 10  = 10 px
-     * 20  = 20 px
-     * 30  = 30 px
-     * 49  = 49 px
-     * 120 = 120 px
+     * 0   = ẩn
+     * 30  = mặc định
+     * 120 = tối đa
      */
-
-    if (height < 0.0) {
+    if (height < 0.0)
         height = 0.0;
-    }
 
-    if (height > 120.0) {
+    if (height > 120.0)
         height = 120.0;
-    }
 
     return height;
 }
 
-
-/*
- * ============================================================
- * UIApplicationSceneSettings
- * ============================================================
- *
- * Không scale Status Bar.
- * Không thay đổi frame.
- * Không đụng Home Bar.
- *
- * Chỉ thay đổi giá trị mà scene settings báo cho hệ thống.
- */
+#pragma mark -
+#pragma mark UIApplicationSceneSettings
+#pragma mark -
 
 %hook UIApplicationSceneSettings
 
-
-- (double)statusBarHeight
+- (CGFloat)defaultStatusBarHeightForOrientation:(NSInteger)orientation
 {
     /*
-     * Chỉ Portrait mới dùng giá trị custom.
-     *
-     * Không thể đọc orientation trực tiếp ở đây một cách
-     * an toàn nên giữ nguyên logic của hệ thống cho những
-     * trường hợp không liên quan.
+     * Chỉ Portrait.
      */
-    return (double)SHAStatusBarHeight();
-}
-
-
-- (double)defaultStatusBarHeightForOrientation:(long long)orientation
-{
-    /*
-     * UIInterfaceOrientation:
-     *
-     * 1 = Portrait
-     * 2 = PortraitUpsideDown
-     * 3 = LandscapeLeft
-     * 4 = LandscapeRight
-     */
-
-    if (orientation == 1 || orientation == 2) {
-        return (double)SHAStatusBarHeight();
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown)
+    {
+        return %orig;
     }
 
-    return %orig;
+    return SHAStatusBarHeight();
 }
 
-
-%end
-
-
-/*
- * ============================================================
- * SBMainDisplaySceneLayoutStatusBarView
- * ============================================================
- *
- * Đây là phần xử lý avoidance frame.
- *
- * Không dùng self.window.
- * Không dùng CATransform3D.
- * Không scale icon.
- * Không đụng Home Bar.
- */
-
-%hook SBMainDisplaySceneLayoutStatusBarView
-
-
-- (CGRect)_statusBarAvoidanceFrame
+- (CGFloat)statusBarHeight
 {
-    CGRect frame = %orig;
-
-    CGFloat height = SHAStatusBarHeight();
-
     /*
-     * Status Bar luôn bắt đầu từ cạnh TOP.
+     * Giữ cùng một giá trị cho API statusBarHeight.
      *
-     * Height:
-     *     0   -> 0
-     *     30  -> 30
-     *     49  -> 49
-     *     120 -> 120
+     * Một số thành phần SpringBoard lấy chiều cao
+     * qua method này thay vì defaultStatusBarHeightForOrientation:.
      */
-
-    frame.origin.y = 0.0;
-    frame.size.height = height;
-
-    return frame;
+    return SHAStatusBarHeight();
 }
-
 
 %end
-
-
-/*
- * ============================================================
- * Preference notification
- * ============================================================
- *
- * Khi thay đổi Settings, báo cho SpringBoard.
- *
- * Không thay đổi Home Bar.
- */
-
-static void SHAStatusBarPreferencesChanged(
-    CFNotificationCenterRef center,
-    void *observer,
-    CFStringRef name,
-    const void *object,
-    CFDictionaryRef userInfo
-)
-{
-    dispatch_async(
-        dispatch_get_main_queue(),
-        ^{
-            /*
-             * Không tự ý chỉnh frame/view ở đây.
-             *
-             * UIKit/SpringBoard sẽ đọc lại SceneSettings
-             * khi layout được cập nhật.
-             */
-        }
-    );
-}
-
-
-/*
- * ============================================================
- * Constructor
- * ============================================================
- */
-
-%ctor
-{
-    NSString *bundleID =
-        [[NSBundle mainBundle] bundleIdentifier];
-
-    /*
-     * Chỉ chạy trong SpringBoard.
-     */
-    if (![bundleID isEqualToString:@"com.apple.springboard"]) {
-        return;
-    }
-
-
-    CFNotificationCenterAddObserver(
-        CFNotificationCenterGetDarwinNotifyCenter(),
-        NULL,
-        SHAStatusBarPreferencesChanged,
-        CFSTR("com.congtu.statushomebaradjuster/preferenceschanged"),
-        NULL,
-        CFNotificationSuspensionBehaviorCoalesce
-    );
-
-
-    %init;
-}
