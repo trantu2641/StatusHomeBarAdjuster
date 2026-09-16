@@ -7,9 +7,11 @@
 
 static CGFloat SHAStatusBarHeight(void)
 {
-    NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:SHA_PREFS];
+    NSDictionary *prefs =
+        [NSDictionary dictionaryWithContentsOfFile:SHA_PREFS];
 
     id value = prefs[@"StatusBarHeight"];
+
     CGFloat height = 30.0;
 
     if ([value isKindOfClass:[NSNumber class]]) {
@@ -19,19 +21,34 @@ static CGFloat SHAStatusBarHeight(void)
         height = [value doubleValue];
     }
 
-    if (height < 0.0)
+    // 0...120 px
+    if (height < 0.0) {
         height = 0.0;
+    }
 
-    if (height > 120.0)
+    if (height > 120.0) {
         height = 120.0;
+    }
 
     return height;
 }
 
-static BOOL SHAPortrait(NSInteger orientation)
+#pragma mark - Orientation
+
+static BOOL SHAPortrait(void)
 {
-    return orientation == UIInterfaceOrientationPortrait ||
-           orientation == UIInterfaceOrientationPortraitUpsideDown;
+    UIScreen *screen = [UIScreen mainScreen];
+
+    CGRect bounds = screen.bounds;
+
+    /*
+     * iPhone portrait:
+     * width < height
+     *
+     * Landscape:
+     * width > height
+     */
+    return bounds.size.height >= bounds.size.width;
 }
 
 #pragma mark -
@@ -40,9 +57,17 @@ static BOOL SHAPortrait(NSInteger orientation)
 
 %hook UIApplicationSceneSettings
 
+/*
+ * Đây là hook đã được xác nhận có tác dụng trên máy:
+ *
+ * Spotlight + một số app đã thay đổi Status Bar.
+ *
+ * Giữ lại làm nguồn chiều cao Status Bar.
+ */
 - (CGFloat)defaultStatusBarHeightForOrientation:(NSInteger)orientation
 {
-    if (!SHAPortrait(orientation)) {
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown) {
         return %orig;
     }
 
@@ -59,86 +84,60 @@ static BOOL SHAPortrait(NSInteger orientation)
 %hook SBMainDisplaySceneLayoutStatusBarView
 
 /*
- * SpringBoard asks this object for the rectangle that must be avoided
- * by scene content because of the Status Bar.
+ * SpringBoard dùng avoidance frame để báo cho scene:
  *
- * Portrait:
+ * "Phần phía trên này đang bị Status Bar chiếm."
  *
- *   x = 0
- *   y = 0
- *   width = screen width
- *   height = our StatusBarHeight
+ * Ta chỉ thay đổi chiều cao.
  *
- * Landscape:
- *   completely untouched.
+ * TOP vẫn luôn ở 0.
  */
 - (CGRect)_statusBarAvoidanceFrame
 {
     CGRect original = %orig;
 
     /*
-     * Do not touch landscape.
-     *
-     * The original rectangle also gives us a reliable screen width,
-     * so we preserve that rather than constructing an arbitrary size.
+     * Tuyệt đối không thay đổi landscape.
      */
-    UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
-
-    if ([self respondsToSelector:@selector(interfaceOrientation)]) {
-        @try {
-            orientation = (UIInterfaceOrientation)[self interfaceOrientation];
-        }
-        @catch (...) {
-        }
-    }
-
-    /*
-     * If we cannot reliably determine orientation from the object,
-     * use the geometry itself as a conservative fallback.
-     *
-     * Portrait iPhone 11 Pro Max is wider than it is tall only in
-     * landscape, so this avoids modifying the landscape case.
-     */
-    if (!SHAPortrait(orientation)) {
+    if (!SHAPortrait()) {
         return original;
     }
 
     CGFloat height = SHAStatusBarHeight();
 
-    /*
-     * Preserve the original x/width whenever possible.
-     * Only the vertical extent is changed.
-     */
-    CGRect result = original;
+    CGRect adjusted = original;
 
-    result.origin.y = 0.0;
-    result.size.height = height;
+    adjusted.origin.y = 0.0;
+    adjusted.size.height = height;
 
-    return result;
+    return adjusted;
 }
 
+@end
+
+
+#pragma mark -
+#pragma mark Apply avoidance frame
+#pragma mark -
+
+%hook SBMainDisplaySceneLayoutStatusBarView
 
 /*
- * This is the point where SpringBoard applies the avoidance frame
- * to a scene.
+ * Đây là đường SpringBoard áp dụng avoidance frame
+ * vào scene.
  *
- * We replace only the portrait vertical extent.
- * Landscape is passed through unchanged.
+ * Portrait:
+ *
+ *   y = 0
+ *   height = StatusBarHeight
+ *
+ * Landscape:
+ *   giữ nguyên hoàn toàn.
  */
 - (void)_applyStatusBarAvoidanceFrame:(CGRect)frame
                  toSceneWithIdentifier:(NSString *)sceneIdentifier
 {
-    /*
-     * Determine whether the current screen is portrait from the
-     * actual screen geometry. This avoids depending on private
-     * orientation APIs that may vary between iOS 16 builds.
-     */
-    UIScreen *screen = [UIScreen mainScreen];
-    CGRect bounds = screen.bounds;
-
-    BOOL portraitGeometry = bounds.size.height >= bounds.size.width;
-
-    if (!portraitGeometry) {
+    if (!SHAPortrait()) {
         %orig(frame, sceneIdentifier);
         return;
     }
@@ -151,20 +150,25 @@ static BOOL SHAPortrait(NSInteger orientation)
     %orig(adjusted, sceneIdentifier);
 }
 
+@end
+
+
+#pragma mark -
+#pragma mark Scene avoidance-frame propagation
+#pragma mark -
+
+%hook SBMainDisplaySceneLayoutStatusBarView
 
 /*
- * SpringBoard also propagates avoidance-frame changes through this
- * callback. Modify the rectangle before it reaches the scene.
+ * SpringBoard gọi callback này khi avoidance frame
+ * thay đổi.
+ *
+ * Ta thay chiều cao trước khi chuyển tiếp xuống scene.
  */
 - (void)sceneWithIdentifier:(NSString *)sceneIdentifier
  didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
 {
-    UIScreen *screen = [UIScreen mainScreen];
-    CGRect bounds = screen.bounds;
-
-    BOOL portraitGeometry = bounds.size.height >= bounds.size.width;
-
-    if (!portraitGeometry) {
+    if (!SHAPortrait()) {
         %orig(sceneIdentifier, frame);
         return;
     }
@@ -177,7 +181,7 @@ static BOOL SHAPortrait(NSInteger orientation)
     %orig(sceneIdentifier, adjusted);
 }
 
-%end
+@end
 
 
 #pragma mark -
@@ -187,13 +191,10 @@ static BOOL SHAPortrait(NSInteger orientation)
 %ctor
 {
     /*
-     * Status Bar only.
+     * Không cần %init().
      *
-     * IMPORTANT:
-     * No Home Bar hooks are initialized here.
+     * Logos tự đăng ký các %hook ở trên.
+     *
+     * Chưa có bất kỳ Home Bar hook nào.
      */
-    %init(
-        UIApplicationSceneSettings = %c(UIApplicationSceneSettings),
-        SBMainDisplaySceneLayoutStatusBarView = %c(SBMainDisplaySceneLayoutStatusBarView)
-    );
 }
