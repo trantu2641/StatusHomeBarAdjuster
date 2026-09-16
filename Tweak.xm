@@ -1,7 +1,7 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 
-#pragma mark - Constants
+#pragma mark - Preferences
 
 static CGFloat SHAClampHeight(CGFloat value)
 {
@@ -19,8 +19,6 @@ static CGFloat SHAClampHeight(CGFloat value)
 
     return value;
 }
-
-#pragma mark - Preferences
 
 static CGFloat SHAStatusBarHeight(void)
 {
@@ -57,18 +55,18 @@ static BOOL SHAPortrait(void)
     return (size.height >= size.width);
 }
 
-#pragma mark - Status Bar
+#pragma mark - SBMainDisplaySceneLayoutStatusBarView
 
-%group SHAStatusBarOnly
+%group SHAStatusBarLayoutGroup
 
-%hook UIStatusBar_Modern
+%hook SBMainDisplaySceneLayoutStatusBarView
 
 /*
- * iOS 16.4 diagnostic đã xác nhận method này tồn tại:
+ * iOS 16.4 diagnostic:
  *
- * + _heightForStyle:orientation:forStatusBarFrame:inWindow:isAzulBLinked:
+ * - statusBar:willAnimateFromHeight:toHeight:duration:animation:
  *
- * Bản test này CHỈ thay đổi giá trị height.
+ * ĐÂY CHỈ LÀ CALLBACK THEO DÕI THAY ĐỔI HEIGHT.
  *
  * Không:
  * - sửa frame
@@ -76,23 +74,33 @@ static BOOL SHAPortrait(void)
  * - sửa center
  * - sửa transform
  * - gọi layoutSubviews
- * - sửa safe area
- * - sửa icon
+ * - sửa safeAreaInsets
+ * - sửa UIStatusBar_Modern
+ *
+ * Mục tiêu của bản này là xác định rằng callback này có thể
+ * được hook an toàn trên SpringBoard của máy.
  */
 
-+ (CGFloat)_heightForStyle:(NSInteger)style
-                orientation:(NSInteger)orientation
-       forStatusBarFrame:(CGRect)statusBarFrame
-                  inWindow:(UIWindow *)window
-             isAzulBLinked:(BOOL)isAzulBLinked
+- (void)statusBar:(id)statusBar
+willAnimateFromHeight:(CGFloat)fromHeight
+      toHeight:(CGFloat)toHeight
+      duration:(NSTimeInterval)duration
+     animation:(id)animation
 {
-    if (!SHAPortrait()) {
-        return %orig;
-    }
+    /*
+     * Không thay đổi geometry ở đây.
+     *
+     * Chỉ gọi implementation gốc.
+     *
+     * Việc đọc preference được giữ ở ngoài callback để tránh
+     * can thiệp vào quá trình animation/layout của SpringBoard.
+     */
 
-    CGFloat height = SHAStatusBarHeight();
-
-    return height;
+    %orig(statusBar,
+          fromHeight,
+          toHeight,
+          duration,
+          animation);
 }
 
 %end
@@ -106,25 +114,27 @@ static BOOL SHAPortrait(void)
     @autoreleasepool {
 
         /*
-         * Chỉ cài hook nếu class và method thực sự tồn tại.
-         *
-         * Nếu không tồn tại:
-         *     tweak không làm gì cả.
+         * Chỉ cài hook nếu class và selector thực sự tồn tại.
          */
 
-        Class cls = NSClassFromString(@"UIStatusBar_Modern");
+        Class cls =
+            NSClassFromString(
+                @"SBMainDisplaySceneLayoutStatusBarView"
+            );
 
         SEL selector =
-            @selector(_heightForStyle:
-                      orientation:
-                      forStatusBarFrame:
-                      inWindow:
-                      isAzulBLinked:);
+            @selector(
+                statusBar:
+                willAnimateFromHeight:
+                toHeight:
+                duration:
+                animation:
+            );
 
         if (cls &&
-            [cls respondsToSelector:selector]) {
+            [cls instancesRespondToSelector:selector]) {
 
-            %init(SHAStatusBarOnly);
+            %init(SHAStatusBarLayoutGroup);
         }
     }
 }
