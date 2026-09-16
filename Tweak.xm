@@ -32,15 +32,6 @@ static CGFloat SHAStatusBarHeight(void)
     return height;
 }
 
-#pragma mark - Portrait check
-
-static BOOL SHAPortrait(void)
-{
-    CGRect bounds = [UIScreen mainScreen].bounds;
-
-    return bounds.size.height >= bounds.size.width;
-}
-
 #pragma mark -
 #pragma mark UIApplicationSceneSettings
 #pragma mark -
@@ -55,65 +46,6 @@ static BOOL SHAPortrait(void)
     }
 
     return SHAStatusBarHeight();
-}
-
-%end
-
-
-#pragma mark -
-#pragma mark SBMainDisplaySceneLayoutStatusBarView
-#pragma mark -
-
-%hook SBMainDisplaySceneLayoutStatusBarView
-
-- (CGRect)_statusBarAvoidanceFrame
-{
-    CGRect original = %orig;
-
-    if (!SHAPortrait()) {
-        return original;
-    }
-
-    CGRect adjusted = original;
-
-    adjusted.origin.y = 0.0;
-    adjusted.size.height = SHAStatusBarHeight();
-
-    return adjusted;
-}
-
-
-- (void)_applyStatusBarAvoidanceFrame:(CGRect)frame
-                 toSceneWithIdentifier:(NSString *)sceneIdentifier
-{
-    if (!SHAPortrait()) {
-        %orig(frame, sceneIdentifier);
-        return;
-    }
-
-    CGRect adjusted = frame;
-
-    adjusted.origin.y = 0.0;
-    adjusted.size.height = SHAStatusBarHeight();
-
-    %orig(adjusted, sceneIdentifier);
-}
-
-
-- (void)sceneWithIdentifier:(NSString *)sceneIdentifier
- didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
-{
-    if (!SHAPortrait()) {
-        %orig(sceneIdentifier, frame);
-        return;
-    }
-
-    CGRect adjusted = frame;
-
-    adjusted.origin.y = 0.0;
-    adjusted.size.height = SHAStatusBarHeight();
-
-    %orig(sceneIdentifier, adjusted);
 }
 
 %end
