@@ -21,7 +21,6 @@ static CGFloat SHAStatusBarHeight(void)
         height = [value doubleValue];
     }
 
-    // 0...120 px
     if (height < 0.0) {
         height = 0.0;
     }
@@ -33,21 +32,12 @@ static CGFloat SHAStatusBarHeight(void)
     return height;
 }
 
-#pragma mark - Orientation
+#pragma mark - Portrait check
 
 static BOOL SHAPortrait(void)
 {
-    UIScreen *screen = [UIScreen mainScreen];
+    CGRect bounds = [UIScreen mainScreen].bounds;
 
-    CGRect bounds = screen.bounds;
-
-    /*
-     * iPhone portrait:
-     * width < height
-     *
-     * Landscape:
-     * width > height
-     */
     return bounds.size.height >= bounds.size.width;
 }
 
@@ -57,13 +47,6 @@ static BOOL SHAPortrait(void)
 
 %hook UIApplicationSceneSettings
 
-/*
- * Đây là hook đã được xác nhận có tác dụng trên máy:
- *
- * Spotlight + một số app đã thay đổi Status Bar.
- *
- * Giữ lại làm nguồn chiều cao Status Bar.
- */
 - (CGFloat)defaultStatusBarHeightForOrientation:(NSInteger)orientation
 {
     if (orientation != UIInterfaceOrientationPortrait &&
@@ -83,57 +66,23 @@ static BOOL SHAPortrait(void)
 
 %hook SBMainDisplaySceneLayoutStatusBarView
 
-/*
- * SpringBoard dùng avoidance frame để báo cho scene:
- *
- * "Phần phía trên này đang bị Status Bar chiếm."
- *
- * Ta chỉ thay đổi chiều cao.
- *
- * TOP vẫn luôn ở 0.
- */
 - (CGRect)_statusBarAvoidanceFrame
 {
     CGRect original = %orig;
 
-    /*
-     * Tuyệt đối không thay đổi landscape.
-     */
     if (!SHAPortrait()) {
         return original;
     }
 
-    CGFloat height = SHAStatusBarHeight();
-
     CGRect adjusted = original;
 
     adjusted.origin.y = 0.0;
-    adjusted.size.height = height;
+    adjusted.size.height = SHAStatusBarHeight();
 
     return adjusted;
 }
 
-@end
 
-
-#pragma mark -
-#pragma mark Apply avoidance frame
-#pragma mark -
-
-%hook SBMainDisplaySceneLayoutStatusBarView
-
-/*
- * Đây là đường SpringBoard áp dụng avoidance frame
- * vào scene.
- *
- * Portrait:
- *
- *   y = 0
- *   height = StatusBarHeight
- *
- * Landscape:
- *   giữ nguyên hoàn toàn.
- */
 - (void)_applyStatusBarAvoidanceFrame:(CGRect)frame
                  toSceneWithIdentifier:(NSString *)sceneIdentifier
 {
@@ -150,21 +99,7 @@ static BOOL SHAPortrait(void)
     %orig(adjusted, sceneIdentifier);
 }
 
-@end
 
-
-#pragma mark -
-#pragma mark Scene avoidance-frame propagation
-#pragma mark -
-
-%hook SBMainDisplaySceneLayoutStatusBarView
-
-/*
- * SpringBoard gọi callback này khi avoidance frame
- * thay đổi.
- *
- * Ta thay chiều cao trước khi chuyển tiếp xuống scene.
- */
 - (void)sceneWithIdentifier:(NSString *)sceneIdentifier
  didChangeStatusBarAvoidanceFrameTo:(CGRect)frame
 {
@@ -181,20 +116,4 @@ static BOOL SHAPortrait(void)
     %orig(sceneIdentifier, adjusted);
 }
 
-@end
-
-
-#pragma mark -
-#pragma mark Constructor
-#pragma mark -
-
-%ctor
-{
-    /*
-     * Không cần %init().
-     *
-     * Logos tự đăng ký các %hook ở trên.
-     *
-     * Chưa có bất kỳ Home Bar hook nào.
-     */
-}
+%end
