@@ -1,286 +1,116 @@
-#import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+#import <Foundation/Foundation.h>
+#import <substrate.h>
 
-#define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
-#define SHA_STATUS_BAR_HEIGHT "StatusBarHeight"
+#pragma mark - Preferences
 
+static NSString * const SHA_DOMAIN = @"com.congtu.statushomebaradjuster";
+static NSString * const SHA_STATUS_KEY = @"StatusBarHeight";
 
-static CGFloat SHAGetStatusBarHeight(void)
+static CGFloat SHAStatusBarHeight(void)
 {
-    CFPreferencesAppSynchronize(
-        CFSTR(SHA_PREFS_DOMAIN)
-    );
-
     CFPropertyListRef value =
         CFPreferencesCopyAppValue(
-            CFSTR(SHA_STATUS_BAR_HEIGHT),
-            CFSTR(SHA_PREFS_DOMAIN)
+            CFSTR("StatusBarHeight"),
+            CFSTR("com.congtu.statushomebaradjuster")
         );
 
     CGFloat height = 30.0;
 
-    if (value != NULL) {
-
+    if (value) {
         if (CFGetTypeID(value) == CFNumberGetTypeID()) {
-
-            double number = 30.0;
-
-            if (CFNumberGetValue(
-                    (CFNumberRef)value,
-                    kCFNumberDoubleType,
-                    &number)) {
-
-                height = (CGFloat)number;
-            }
+            double v = 30.0;
+            CFNumberGetValue((CFNumberRef)value, kCFNumberDoubleType, &v);
+            height = (CGFloat)v;
         }
         else if (CFGetTypeID(value) == CFStringGetTypeID()) {
-
-            height =
-                (CGFloat)CFStringGetDoubleValue(
-                    (CFStringRef)value
-                );
+            height = (CGFloat)CFStringGetDoubleValue((CFStringRef)value);
         }
 
         CFRelease(value);
     }
 
-    if (height < 0.0) {
+    if (height < 0.0)
         height = 0.0;
-    }
 
-    if (height > 120.0) {
+    if (height > 120.0)
         height = 120.0;
-    }
 
     return height;
 }
 
-
-/*
- * ============================================================
- * _UIStatusBar
- * ============================================================
- *
- * Mục tiêu:
- *
- * 30 -> 120:
- *     giữ cơ chế chiều cao hiện tại.
- *
- * 0 -> 30:
- *     thu nhỏ container thật sự.
- *     Sau đó đưa các Status Bar parts xuống đáy container.
- *
- * Không:
- *     CATransform3D
- *     setFrame:
- *     setBounds:
- *     Home Bar
- */
-
-
-/*
- * ------------------------------------------------------------
- * intrinsicContentSize
- * ------------------------------------------------------------
- */
-
-%hook _UIStatusBar
-
-
-- (CGSize)intrinsicContentSize
+static BOOL SHAPortrait(void)
 {
-    CGSize size = %orig;
+    UIInterfaceOrientation orientation =
+        [UIApplication sharedApplication].statusBarOrientation;
 
-    CGFloat targetHeight =
-        SHAGetStatusBarHeight();
-
-    /*
-     * Chỉ thay chiều cao.
-     *
-     * Width giữ nguyên.
-     */
-    size.height = targetHeight;
-
-    return size;
+    return orientation == UIInterfaceOrientationPortrait ||
+           orientation == UIInterfaceOrientationPortraitUpsideDown;
 }
 
+#pragma mark - SBMainDisplaySceneLayoutStatusBarView
 
-/*
- * ------------------------------------------------------------
- * updateConstraints
- * ------------------------------------------------------------
- *
- * Cho phép Auto Layout cập nhật lại chiều cao sau khi
- * intrinsicContentSize thay đổi.
- */
+@interface SBMainDisplaySceneLayoutStatusBarView : UIView
+- (CGRect)_statusBarFrameForOrientation:(NSInteger)orientation;
+@end
 
-- (void)updateConstraints
-{
-    %orig;
-}
+static CGRect (*orig_SBMSLSBV_statusBarFrameForOrientation)
+    (SBMainDisplaySceneLayoutStatusBarView *, SEL, NSInteger);
 
-
-/*
- * ------------------------------------------------------------
- * frameForPartWithIdentifier:
- * ------------------------------------------------------------
- *
- * Đây là phần mới để xử lý icon.
- *
- * Khi Status Bar < 30 px, frame gốc của icon có thể vẫn
- * nằm theo layout 49 px.
- *
- * Ta giữ nguyên X / Width / Height của từng part,
- * chỉ dịch Y để đáy của part nằm sát đáy Status Bar.
- */
-
-- (CGRect)frameForPartWithIdentifier:(id)identifier
-{
-    CGRect frame = %orig(identifier);
-
-    CGFloat statusHeight =
-        SHAGetStatusBarHeight();
-
-    /*
-     * Chỉ cần xử lý khi chiều cao nhỏ hơn mức bình thường.
-     *
-     * 30 -> 120:
-     * giữ nguyên frame gốc để không phá cơ chế đang chạy.
-     */
-    if (statusHeight >= 30.0) {
-        return frame;
-    }
-
-
-    /*
-     * Nếu part cao hơn vùng Status Bar mới,
-     * đặt phần trên tại 0.
-     *
-     * Tránh tạo Y âm.
-     */
-    if (frame.size.height >= statusHeight) {
-
-        frame.origin.y = 0.0;
-
-        return frame;
-    }
-
-
-    /*
-     * Đặt BOTTOM của part đúng vào BOTTOM
-     * của Status Bar mới.
-     *
-     * Ví dụ:
-     *
-     * Status Bar = 20
-     * icon height = 12
-     *
-     * Y = 20 - 12 = 8
-     */
-    frame.origin.y =
-        statusHeight - frame.size.height;
-
-
-    return frame;
-}
-
-
-/*
- * ------------------------------------------------------------
- * frameForDisplayItemWithIdentifier:
- * ------------------------------------------------------------
- *
- * Một số thành phần Status Bar không đi qua
- * frameForPartWithIdentifier: mà dùng display item.
- *
- * Dùng cùng nguyên tắc.
- */
-
-- (CGRect)frameForDisplayItemWithIdentifier:(id)identifier
+static CGRect hook_SBMSLSBV_statusBarFrameForOrientation(
+    SBMainDisplaySceneLayoutStatusBarView *self,
+    SEL _cmd,
+    NSInteger orientation)
 {
     CGRect frame =
-        %orig(identifier);
-
-    CGFloat statusHeight =
-        SHAGetStatusBarHeight();
-
+        orig_SBMSLSBV_statusBarFrameForOrientation(
+            self,
+            _cmd,
+            orientation
+        );
 
     /*
-     * 30–120:
-     * không thay đổi layout hiện tại.
+     * Chỉ can thiệp Portrait.
+     * Landscape trả nguyên frame hệ thống.
      */
-    if (statusHeight >= 30.0) {
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown) {
         return frame;
     }
 
+    CGFloat targetHeight = SHAStatusBarHeight();
 
-    if (frame.size.height >= statusHeight) {
-
-        frame.origin.y = 0.0;
-
-        return frame;
-    }
-
-
-    frame.origin.y =
-        statusHeight - frame.size.height;
-
+    /*
+     * Mép trên cố định.
+     *
+     * Không scale.
+     * Không thay width.
+     * Không thay x.
+     */
+    frame.origin.y = 0.0;
+    frame.size.height = targetHeight;
 
     return frame;
 }
 
-
-%end
-
-
-/*
- * ============================================================
- * UIApplicationSceneSettings
- * ============================================================
- *
- * Giữ lại phần đã có tác dụng 30–120.
- *
- * Không đụng Home Bar.
- */
-
-%hook UIApplicationSceneSettings
-
-
-- (double)statusBarHeight
-{
-    return (double)SHAGetStatusBarHeight();
-}
-
-
-- (double)defaultStatusBarHeightForOrientation:(long long)orientation
-{
-    if (orientation == UIInterfaceOrientationPortrait ||
-        orientation == UIInterfaceOrientationPortraitUpsideDown) {
-
-        return (double)SHAGetStatusBarHeight();
-    }
-
-    return %orig;
-}
-
-
-%end
-
-
-/*
- * ============================================================
- * Constructor
- * ============================================================
- */
+#pragma mark - Initialization
 
 %ctor
 {
-    NSString *bundleID =
-        [[NSBundle mainBundle] bundleIdentifier];
+    @autoreleasepool {
 
-    if (![bundleID isEqualToString:@"com.apple.springboard"]) {
-        return;
+        Class cls =
+            objc_getClass(
+                "SBMainDisplaySceneLayoutStatusBarView"
+            );
+
+        if (cls) {
+            MSHookMessageEx(
+                cls,
+                @selector(_statusBarFrameForOrientation:),
+                (IMP)hook_SBMSLSBV_statusBarFrameForOrientation,
+                (IMP *)&orig_SBMSLSBV_statusBarFrameForOrientation
+            );
+        }
     }
-
-    %init;
 }
