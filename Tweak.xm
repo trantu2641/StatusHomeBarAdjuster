@@ -1,33 +1,42 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
-#import <substrate.h>
 
-#pragma mark - Preferences
+#define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
+#define SHA_STATUS_BAR_HEIGHT "StatusBarHeight"
 
-static CGFloat SHAStatusBarHeight(void)
+
+#pragma mark -
+#pragma mark Preferences
+#pragma mark -
+
+static CGFloat SHAGetStatusBarHeight(void)
 {
+    CFPreferencesAppSynchronize(
+        CFSTR(SHA_PREFS_DOMAIN)
+    );
+
     CFPropertyListRef value =
         CFPreferencesCopyAppValue(
-            CFSTR("StatusBarHeight"),
-            CFSTR("com.congtu.statushomebaradjuster")
+            CFSTR(SHA_STATUS_BAR_HEIGHT),
+            CFSTR(SHA_PREFS_DOMAIN)
         );
 
     CGFloat height = 30.0;
 
-    if (value) {
+    if (value != NULL) {
 
         if (CFGetTypeID(value) == CFNumberGetTypeID()) {
 
-            double v = 30.0;
+            double number = 30.0;
 
-            CFNumberGetValue(
-                (CFNumberRef)value,
-                kCFNumberDoubleType,
-                &v
-            );
+            if (CFNumberGetValue(
+                    (CFNumberRef)value,
+                    kCFNumberDoubleType,
+                    &number)) {
 
-            height = (CGFloat)v;
+                height = (CGFloat)number;
+            }
         }
         else if (CFGetTypeID(value) == CFStringGetTypeID()) {
 
@@ -40,13 +49,6 @@ static CGFloat SHAStatusBarHeight(void)
         CFRelease(value);
     }
 
-    /*
-     * Giới hạn:
-     *
-     * 0   = ẩn hoàn toàn
-     * 30  = mặc định
-     * 120 = tối đa
-     */
 
     if (height < 0.0)
         height = 0.0;
@@ -54,92 +56,223 @@ static CGFloat SHAStatusBarHeight(void)
     if (height > 120.0)
         height = 120.0;
 
+
     return height;
 }
 
-#pragma mark - SBMainDisplaySceneLayoutStatusBarView
 
-@interface SBMainDisplaySceneLayoutStatusBarView : UIView
+#pragma mark -
+#pragma mark Orientation
+#pragma mark -
 
-- (CGRect)_statusBarFrameForOrientation:(NSInteger)orientation;
-
-@end
-
-static CGRect (*orig_SHA_statusBarFrameForOrientation)(
-    SBMainDisplaySceneLayoutStatusBarView *self,
-    SEL _cmd,
-    NSInteger orientation
-);
-
-static CGRect hook_SHA_statusBarFrameForOrientation(
-    SBMainDisplaySceneLayoutStatusBarView *self,
-    SEL _cmd,
-    NSInteger orientation
-)
+static BOOL SHAIsPortrait(void)
 {
-    /*
-     * Lấy frame gốc của SpringBoard trước.
-     */
-    CGRect frame =
-        orig_SHA_statusBarFrameForOrientation(
-            self,
-            _cmd,
-            orientation
-        );
+    UIScreen *screen = [UIScreen mainScreen];
+
+    CGSize size = screen.bounds.size;
 
     /*
-     * Chỉ Portrait.
+     * Portrait trên iPhone:
      *
-     * Landscape giữ nguyên hoàn toàn.
+     * width < height
      */
-    if (orientation != UIInterfaceOrientationPortrait &&
-        orientation != UIInterfaceOrientationPortraitUpsideDown) {
 
-        return frame;
-    }
-
-    /*
-     * Đọc giá trị 0...120 từ Preferences.
-     */
-    CGFloat targetHeight = SHAStatusBarHeight();
-
-    /*
-     * GIỮ NGUYÊN:
-     *
-     * x
-     * width
-     *
-     * CHỈ THAY:
-     *
-     * y    = 0
-     * height = targetHeight
-     */
-    frame.origin.y = 0.0;
-    frame.size.height = targetHeight;
-
-    return frame;
+    return size.width < size.height;
 }
 
-#pragma mark - Constructor
+
+#pragma mark -
+#pragma mark _UIStatusBar
+#pragma mark -
+
+%hook _UIStatusBar
+
+
++ (CGSize)intrinsicContentSizeForTargetScreen:(id)targetScreen
+                                   orientation:(long long)orientation
+                                  onLockScreen:(BOOL)onLockScreen
+{
+    CGSize original =
+        %orig(
+            targetScreen,
+            orientation,
+            onLockScreen
+        );
+
+
+    if (orientation == UIInterfaceOrientationPortrait ||
+        orientation == UIInterfaceOrientationPortraitUpsideDown) {
+
+        original.height =
+            SHAGetStatusBarHeight();
+    }
+
+
+    return original;
+}
+
+
++ (CGSize)intrinsicContentSizeForTargetScreen:(id)targetScreen
+                                   orientation:(long long)orientation
+                                  onLockScreen:(BOOL)onLockScreen
+                                isAzulBLinked:(BOOL)isAzulBLinked
+{
+    CGSize original =
+        %orig(
+            targetScreen,
+            orientation,
+            onLockScreen,
+            isAzulBLinked
+        );
+
+
+    if (orientation == UIInterfaceOrientationPortrait ||
+        orientation == UIInterfaceOrientationPortraitUpsideDown) {
+
+        original.height =
+            SHAGetStatusBarHeight();
+    }
+
+
+    return original;
+}
+
+
+%end
+
+
+#pragma mark -
+#pragma mark Application content
+#pragma mark -
+
+/*
+ * Không chạy trong SpringBoard.
+ *
+ * Phần này chạy trong application process.
+ *
+ * Mục tiêu:
+ *
+ * StatusBarHeight < 30
+ *
+ * -> giảm top safe-area mà UIKit cung cấp cho
+ *    root view của application.
+ *
+ * Không scale layer.
+ * Không thay đổi X.
+ * Không thay đổi chiều rộng.
+ */
+
+
+%hook UIView
+
+
+- (UIEdgeInsets)safeAreaInsets
+{
+    UIEdgeInsets original =
+        %orig;
+
+
+    /*
+     * Chỉ xử lý Portrait.
+     */
+    if (!SHAIsPortrait()) {
+        return original;
+    }
+
+
+    CGFloat statusHeight =
+        SHAGetStatusBarHeight();
+
+
+    /*
+     * Chỉ can thiệp khi giá trị nhỏ hơn
+     * minimum thông thường.
+     *
+     * >= 30 giữ nguyên hành vi hiện tại.
+     */
+    if (statusHeight < 30.0) {
+
+        /*
+         * Không được tạo safe area âm.
+         */
+        if (statusHeight < 0.0)
+            statusHeight = 0.0;
+
+
+        /*
+         * Chỉ giảm TOP.
+         *
+         * Left / Bottom / Right giữ nguyên.
+         */
+        if (original.top > statusHeight) {
+
+            original.top =
+                statusHeight;
+        }
+    }
+
+
+    return original;
+}
+
+
+%end
+
+
+#pragma mark -
+#pragma mark UIWindow
+#pragma mark -
+
+%hook UIWindow
+
+
+- (void)safeAreaInsetsDidChange
+{
+    %orig;
+
+    /*
+     * UIKit sẽ tự layout lại các view phụ thuộc
+     * safeAreaInsets.
+     */
+}
+
+
+%end
+
+
+#pragma mark -
+#pragma mark Constructor
+#pragma mark -
 
 %ctor
 {
     @autoreleasepool {
 
-        Class statusBarLayoutClass =
-            objc_getClass(
-                "SBMainDisplaySceneLayoutStatusBarView"
-            );
+        NSString *bundleID =
+            [[NSBundle mainBundle] bundleIdentifier];
 
-        if (!statusBarLayoutClass) {
+
+        /*
+         * SpringBoard:
+         *
+         * giữ Status Bar hook.
+         */
+        if ([bundleID isEqualToString:
+                @"com.apple.springboard"]) {
+
+            %init;
+
             return;
         }
 
-        MSHookMessageEx(
-            statusBarLayoutClass,
-            @selector(_statusBarFrameForOrientation:),
-            (IMP)hook_SHA_statusBarFrameForOrientation,
-            (IMP *)&orig_SHA_statusBarFrameForOrientation
-        );
+
+        /*
+         * Application:
+         *
+         * load các hook UIView/UIApplication.
+         *
+         * Không đụng Home Bar.
+         */
+        %init;
     }
 }
