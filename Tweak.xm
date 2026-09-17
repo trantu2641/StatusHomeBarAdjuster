@@ -4,7 +4,6 @@
 #define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
 #define SHA_STATUS_BAR_HEIGHT "StatusBarHeight"
 
-
 #pragma mark -
 #pragma mark Preferences
 #pragma mark -
@@ -48,96 +47,198 @@ static CGFloat SHAGetStatusBarHeight(void)
         CFRelease(value);
     }
 
-
     if (height < 0.0)
         height = 0.0;
 
     if (height > 120.0)
         height = 120.0;
 
-
     return height;
 }
 
 
 #pragma mark -
-#pragma mark Root view detection
+#pragma mark UIApplicationSceneSettings
 #pragma mark -
 
-static BOOL SHAIsRootView(UIView *view)
+@interface UIApplicationSceneSettings : NSObject
+
+- (double)statusBarHeight;
+
+- (double)defaultStatusBarHeightForOrientation:
+    (long long)orientation;
+
+- (UIEdgeInsets)safeAreaInsetsPortrait;
+
+- (CGRect)statusBarAvoidanceFrame;
+
+@end
+
+
+%hook UIApplicationSceneSettings
+
+
+/*
+ * ============================================================
+ * safeAreaInsetsPortrait
+ * ============================================================
+ *
+ * Đây là phần quan trọng nhất của bản này.
+ *
+ * Không sửa UIView.
+ * Không sửa UIWindow.
+ *
+ * Cho UIKit biết rằng vùng trên của scene chỉ cao
+ * bằng giá trị người dùng đặt.
+ */
+
+- (UIEdgeInsets)safeAreaInsetsPortrait
 {
-    if (view == nil)
-        return NO;
+    UIEdgeInsets original =
+        %orig;
 
-    UIWindow *window =
-        view.window;
+    CGFloat height =
+        SHAGetStatusBarHeight();
 
-    if (window == nil)
-        return NO;
+    /*
+     * Chỉ thay vùng 0...29.
+     *
+     * 30...120 giữ nguyên cơ chế cũ.
+     */
+    if (height < 30.0) {
 
-    UIViewController *rootVC =
-        window.rootViewController;
+        original.top =
+            height;
 
-    if (rootVC == nil)
-        return NO;
-
-    UIView *rootView =
-        rootVC.view;
-
-    if (rootView == nil)
-        return NO;
-
-    return view == rootView;
-}
-
-
-#pragma mark -
-#pragma mark Portrait detection
-#pragma mark -
-
-static BOOL SHAIsPortrait(UIView *view)
-{
-    UIWindow *window =
-        view.window;
-
-    if (window == nil)
-        return NO;
-
-
-    UIWindowScene *scene =
-        window.windowScene;
-
-    if (scene != nil) {
-
-        UIInterfaceOrientation orientation =
-            scene.interfaceOrientation;
-
-
-        if (orientation == UIInterfaceOrientationPortrait ||
-            orientation == UIInterfaceOrientationPortraitUpsideDown) {
-
-            return YES;
-        }
-
-
-        if (orientation == UIInterfaceOrientationLandscapeLeft ||
-            orientation == UIInterfaceOrientationLandscapeRight) {
-
-            return NO;
-        }
+        if (original.top < 0.0)
+            original.top = 0.0;
     }
 
-
-    CGSize size =
-        window.bounds.size;
-
-    return size.width < size.height;
+    return original;
 }
+
+
+/*
+ * ============================================================
+ * statusBarAvoidanceFrame
+ * ============================================================
+ *
+ * Đây là frame mà scene dùng để tránh Status Bar.
+ *
+ * Khi Status Bar < 30, giảm chiều cao avoidance
+ * xuống đúng giá trị người dùng đặt.
+ */
+
+- (CGRect)statusBarAvoidanceFrame
+{
+    CGRect original =
+        %orig;
+
+    CGFloat height =
+        SHAGetStatusBarHeight();
+
+    if (height < 30.0) {
+
+        /*
+         * Giữ X và Width.
+         *
+         * Mép trên cố định tại 0.
+         */
+        original.origin.y =
+            0.0;
+
+        original.size.height =
+            height;
+    }
+
+    return original;
+}
+
+
+/*
+ * ============================================================
+ * statusBarHeight
+ * ============================================================
+ *
+ * Giữ cơ chế đang hoạt động 30...120.
+ *
+ * Đồng thời cung cấp giá trị 0...29.
+ */
+
+- (double)statusBarHeight
+{
+    double original =
+        %orig;
+
+    CGFloat height =
+        SHAGetStatusBarHeight();
+
+    /*
+     * Chỉ thay khi dưới 30.
+     *
+     * Từ 30 trở lên trả nguyên giá trị hệ thống,
+     * tránh phá cơ chế 30...120 hiện tại.
+     */
+    if (height < 30.0) {
+
+        return (double)height;
+    }
+
+    return original;
+}
+
+
+/*
+ * ============================================================
+ * defaultStatusBarHeightForOrientation:
+ * ============================================================
+ *
+ * Một số UIKit component lấy minimum Status Bar height
+ * thông qua method này thay vì statusBarHeight.
+ */
+
+- (double)defaultStatusBarHeightForOrientation:
+    (long long)orientation
+{
+    double original =
+        %orig(
+            orientation
+        );
+
+    /*
+     * Chỉ Portrait.
+     */
+    if (orientation != UIInterfaceOrientationPortrait &&
+        orientation != UIInterfaceOrientationPortraitUpsideDown) {
+
+        return original;
+    }
+
+    CGFloat height =
+        SHAGetStatusBarHeight();
+
+    /*
+     * Chỉ xử lý 0...29.
+     */
+    if (height < 30.0) {
+
+        return (double)height;
+    }
+
+    return original;
+}
+
+
+%end
 
 
 #pragma mark -
 #pragma mark _UIStatusBar
 #pragma mark -
+
+/*
+ * Giữ nguyên cơ chế Status Bar đã có.
+ */
 
 %hook _UIStatusBar
 
@@ -153,17 +254,12 @@ static BOOL SHAIsPortrait(UIView *view)
             onLockScreen
         );
 
-
-    /*
-     * Chỉ Portrait.
-     */
     if (orientation == UIInterfaceOrientationPortrait ||
         orientation == UIInterfaceOrientationPortraitUpsideDown) {
 
         original.height =
             SHAGetStatusBarHeight();
     }
-
 
     return original;
 }
@@ -182,112 +278,12 @@ static BOOL SHAIsPortrait(UIView *view)
             isAzulBLinked
         );
 
-
-    /*
-     * Chỉ Portrait.
-     */
     if (orientation == UIInterfaceOrientationPortrait ||
         orientation == UIInterfaceOrientationPortraitUpsideDown) {
 
         original.height =
             SHAGetStatusBarHeight();
     }
-
-
-    return original;
-}
-
-
-%end
-
-
-#pragma mark -
-#pragma mark Root application safe area
-#pragma mark -
-
-%hook UIView
-
-
-- (UIEdgeInsets)safeAreaInsets
-{
-    UIEdgeInsets original =
-        %orig;
-
-
-    /*
-     * Không bao giờ can thiệp SpringBoard.
-     */
-    NSString *bundleID =
-        [[NSBundle mainBundle] bundleIdentifier];
-
-    if ([bundleID isEqualToString:
-            @"com.apple.springboard"]) {
-
-        return original;
-    }
-
-
-    /*
-     * Chỉ root view của application.
-     *
-     * Đây là điểm khác biệt quan trọng:
-     *
-     * KHÔNG sửa UILabel
-     * KHÔNG sửa UIImageView
-     * KHÔNG sửa UITableView
-     * KHÔNG sửa UISearchBar
-     * KHÔNG sửa UIVisualEffectView
-     * ...
-     */
-    if (!SHAIsRootView(self)) {
-
-        return original;
-    }
-
-
-    /*
-     * Chỉ Portrait.
-     */
-    if (!SHAIsPortrait(self)) {
-
-        return original;
-    }
-
-
-    CGFloat targetHeight =
-        SHAGetStatusBarHeight();
-
-
-    /*
-     * Từ 30 trở lên:
-     *
-     * giữ nguyên hoàn toàn cơ chế hiện tại.
-     */
-    if (targetHeight >= 30.0) {
-
-        return original;
-    }
-
-
-    /*
-     * ========================================================
-     * 0...29
-     * ========================================================
-     *
-     * Chỉ thay TOP.
-     *
-     * Bottom / Left / Right giữ nguyên.
-     */
-    original.top =
-        targetHeight;
-
-
-    /*
-     * Không bao giờ trả về giá trị âm.
-     */
-    if (original.top < 0.0)
-        original.top = 0.0;
-
 
     return original;
 }
@@ -305,7 +301,7 @@ static BOOL SHAIsPortrait(UIView *view)
     @autoreleasepool {
 
         /*
-         * Chỉ một %init.
+         * Một %init duy nhất.
          */
         %init;
     }
