@@ -1,6 +1,5 @@
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
-#import <objc/runtime.h>
 
 #define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
 #define SHA_STATUS_BAR_HEIGHT "StatusBarHeight"
@@ -67,15 +66,11 @@ static CGFloat SHAGetStatusBarHeight(void)
 
 static BOOL SHAIsPortrait(void)
 {
-    UIScreen *screen = [UIScreen mainScreen];
+    UIScreen *screen =
+        [UIScreen mainScreen];
 
-    CGSize size = screen.bounds.size;
-
-    /*
-     * Portrait trên iPhone:
-     *
-     * width < height
-     */
+    CGSize size =
+        screen.bounds.size;
 
     return size.width < size.height;
 }
@@ -142,26 +137,8 @@ static BOOL SHAIsPortrait(void)
 
 
 #pragma mark -
-#pragma mark Application content
+#pragma mark Application safe area
 #pragma mark -
-
-/*
- * Không chạy trong SpringBoard.
- *
- * Phần này chạy trong application process.
- *
- * Mục tiêu:
- *
- * StatusBarHeight < 30
- *
- * -> giảm top safe-area mà UIKit cung cấp cho
- *    root view của application.
- *
- * Không scale layer.
- * Không thay đổi X.
- * Không thay đổi chiều rộng.
- */
-
 
 %hook UIView
 
@@ -173,7 +150,7 @@ static BOOL SHAIsPortrait(void)
 
 
     /*
-     * Chỉ xử lý Portrait.
+     * Chỉ thay đổi trong Portrait.
      */
     if (!SHAIsPortrait()) {
         return original;
@@ -185,24 +162,21 @@ static BOOL SHAIsPortrait(void)
 
 
     /*
-     * Chỉ can thiệp khi giá trị nhỏ hơn
-     * minimum thông thường.
+     * Chỉ xử lý vùng 0...30.
      *
-     * >= 30 giữ nguyên hành vi hiện tại.
+     * Từ 30 trở lên giữ nguyên cơ chế
+     * Status Bar hiện tại.
      */
     if (statusHeight < 30.0) {
 
         /*
-         * Không được tạo safe area âm.
-         */
-        if (statusHeight < 0.0)
-            statusHeight = 0.0;
-
-
-        /*
          * Chỉ giảm TOP.
          *
-         * Left / Bottom / Right giữ nguyên.
+         * Không thay:
+         *
+         * left
+         * bottom
+         * right
          */
         if (original.top > statusHeight) {
 
@@ -229,11 +203,6 @@ static BOOL SHAIsPortrait(void)
 - (void)safeAreaInsetsDidChange
 {
     %orig;
-
-    /*
-     * UIKit sẽ tự layout lại các view phụ thuộc
-     * safeAreaInsets.
-     */
 }
 
 
@@ -248,30 +217,14 @@ static BOOL SHAIsPortrait(void)
 {
     @autoreleasepool {
 
-        NSString *bundleID =
-            [[NSBundle mainBundle] bundleIdentifier];
-
-
         /*
-         * SpringBoard:
+         * Chỉ một %init duy nhất.
          *
-         * giữ Status Bar hook.
-         */
-        if ([bundleID isEqualToString:
-                @"com.apple.springboard"]) {
-
-            %init;
-
-            return;
-        }
-
-
-        /*
-         * Application:
+         * Đây là nguyên nhân lỗi:
          *
-         * load các hook UIView/UIApplication.
+         * re-%init of %group _ungrouped
          *
-         * Không đụng Home Bar.
+         * ở bản trước.
          */
         %init;
     }
