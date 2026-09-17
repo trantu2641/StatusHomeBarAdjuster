@@ -4,7 +4,6 @@
 #define SHA_PREFS_DOMAIN "com.congtu.statushomebaradjuster"
 #define SHA_STATUS_BAR_HEIGHT "StatusBarHeight"
 
-
 #pragma mark -
 #pragma mark Preferences
 #pragma mark -
@@ -48,13 +47,11 @@ static CGFloat SHAGetStatusBarHeight(void)
         CFRelease(value);
     }
 
-
     if (height < 0.0)
         height = 0.0;
 
     if (height > 120.0)
         height = 120.0;
-
 
     return height;
 }
@@ -94,14 +91,12 @@ static BOOL SHAIsPortrait(void)
             onLockScreen
         );
 
-
     if (orientation == UIInterfaceOrientationPortrait ||
         orientation == UIInterfaceOrientationPortraitUpsideDown) {
 
         original.height =
             SHAGetStatusBarHeight();
     }
-
 
     return original;
 }
@@ -120,7 +115,6 @@ static BOOL SHAIsPortrait(void)
             isAzulBLinked
         );
 
-
     if (orientation == UIInterfaceOrientationPortrait ||
         orientation == UIInterfaceOrientationPortraitUpsideDown) {
 
@@ -128,7 +122,6 @@ static BOOL SHAIsPortrait(void)
             SHAGetStatusBarHeight();
     }
 
-
     return original;
 }
 
@@ -137,72 +130,120 @@ static BOOL SHAIsPortrait(void)
 
 
 #pragma mark -
-#pragma mark Application safe area
+#pragma mark Application root view
 #pragma mark -
 
-%hook UIView
+/*
+ * Chỉ chỉnh root view của UIWindow.
+ *
+ * KHÔNG hook toàn bộ UIView.
+ *
+ * KHÔNG thay safeAreaInsets.
+ *
+ * KHÔNG scale layer.
+ *
+ * KHÔNG đụng Home Bar.
+ */
+
+%hook UIWindow
 
 
-- (UIEdgeInsets)safeAreaInsets
+- (void)layoutSubviews
 {
-    UIEdgeInsets original =
-        %orig;
+    %orig;
+
+    /*
+     * Không chạy trong SpringBoard.
+     */
+    NSString *bundleID =
+        [[NSBundle mainBundle] bundleIdentifier];
+
+    if ([bundleID isEqualToString:@"com.apple.springboard"])
+        return;
 
 
     /*
-     * Chỉ thay đổi trong Portrait.
+     * Chỉ Portrait.
      */
-    if (!SHAIsPortrait()) {
-        return original;
-    }
+    if (!SHAIsPortrait())
+        return;
+
+
+    UIViewController *rootViewController =
+        self.rootViewController;
+
+    if (rootViewController == nil)
+        return;
+
+
+    UIView *rootView =
+        rootViewController.view;
+
+    if (rootView == nil)
+        return;
+
+
+    /*
+     * Chỉ xử lý root view thật sự nằm trong
+     * UIWindow này.
+     */
+    if (rootView.superview != self)
+        return;
 
 
     CGFloat statusHeight =
         SHAGetStatusBarHeight();
 
 
+    CGRect windowBounds =
+        self.bounds;
+
+
     /*
-     * Chỉ xử lý vùng 0...30.
-     *
-     * Từ 30 trở lên giữ nguyên cơ chế
-     * Status Bar hiện tại.
+     * Không thay đổi X / Width.
      */
-    if (statusHeight < 30.0) {
+    CGFloat width =
+        windowBounds.size.width;
 
-        /*
-         * Chỉ giảm TOP.
-         *
-         * Không thay:
-         *
-         * left
-         * bottom
-         * right
-         */
-        if (original.top > statusHeight) {
 
-            original.top =
-                statusHeight;
-        }
+    /*
+     * Toàn bộ phần app bắt đầu ngay sau
+     * Status Bar.
+     */
+    CGFloat newY =
+        statusHeight;
+
+
+    /*
+     * Phần còn lại của màn hình.
+     */
+    CGFloat newHeight =
+        windowBounds.size.height - statusHeight;
+
+
+    if (newHeight < 0.0)
+        newHeight = 0.0;
+
+
+    CGRect newFrame =
+        CGRectMake(
+            0.0,
+            newY,
+            width,
+            newHeight
+        );
+
+
+    /*
+     * Chỉ thay frame khi thực sự khác.
+     */
+    if (!CGRectEqualToRect(
+            rootView.frame,
+            newFrame)) {
+
+        rootView.frame =
+            newFrame;
     }
-
-
-    return original;
-}
-
-
-%end
-
-
-#pragma mark -
-#pragma mark UIWindow
-#pragma mark -
-
-%hook UIWindow
-
-
-- (void)safeAreaInsetsDidChange
-{
-    %orig;
 }
 
 
@@ -217,15 +258,21 @@ static BOOL SHAIsPortrait(void)
 {
     @autoreleasepool {
 
+        NSString *bundleID =
+            [[NSBundle mainBundle] bundleIdentifier];
+
+
         /*
-         * Chỉ một %init duy nhất.
+         * Một %init duy nhất.
          *
-         * Đây là nguyên nhân lỗi:
+         * SpringBoard:
+         *   _UIStatusBar hoạt động.
          *
-         * re-%init of %group _ungrouped
-         *
-         * ở bản trước.
+         * App:
+         *   UIWindow root-view adjustment hoạt động.
          */
+        (void)bundleID;
+
         %init;
     }
 }
